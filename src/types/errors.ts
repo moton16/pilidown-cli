@@ -30,4 +30,6 @@ export class FileSystemError extends Error {
   }
 }
 
+// ponytail: B 站 -352 是反爬风控（要求 buvid3 / 登录态），不是字面意义的"未登录"。
+// httpClient 检测到该码时会自动尝试注入 buvid3 重试；仍未通过则提示用户 login。
 export const BILI_CODE_NEED_LOGIN = -352;

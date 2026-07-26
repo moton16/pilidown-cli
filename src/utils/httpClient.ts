@@ -26,6 +26,36 @@ const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_RETRIES = 3;
 
+// ponytail: -352 反爬风控时 B 站要求 buvid3 cookie。未登录用户首次访问 API 时
+// 自动获取并缓存，所有调用方共用一份。升级路径：若 B 站改要求 buvid4，可改用
+// /x/frontend/finger/spid 接口拿全套。
+let cachedBuvid3: string | undefined;
+
+async function ensureBuvid3(): Promise<string> {
+  if (cachedBuvid3) return cachedBuvid3;
+  // 访问 B 站首页拿 Set-Cookie 中的 buvid3
+  const resp = await fetch('https://www.bilibili.com/', {
+    headers: { 'User-Agent': DEFAULT_UA },
+    redirect: 'manual',
+  });
+  const setCookies = (resp.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+  for (const sc of setCookies) {
+    const m = sc.match(/^buvid3=([^;]+)/);
+    if (m) {
+      cachedBuvid3 = m[1];
+      return cachedBuvid3;
+    }
+  }
+  throw new NetworkError('Failed to obtain buvid3 from bilibili.com');
+}
+
+function mergeBuvid3(cookies?: Record<string, string>): Record<string, string> | undefined {
+  if (!cachedBuvid3) return cookies;
+  if (!cookies) return { buvid3: cachedBuvid3 };
+  if (cookies.buvid3) return cookies;
+  return { ...cookies, buvid3: cachedBuvid3 };
+}
+
 export async function httpRequest<T = unknown>(
   url: string,
   options: HttpRequestOptions = {},
@@ -81,8 +111,23 @@ export async function downloadBuffer(url: string, options: Omit<HttpRequestOptio
 }
 
 export async function biliGet<T = unknown>(url: string, options?: Omit<HttpRequestOptions, 'method' | 'rawResponse'>): Promise<T> {
-  const resp = await httpRequest<BiliResponse<T> | BiliBangumiResponse<T>>(url, { ...options, method: 'GET' });
-  const body = resp.data;
+  let mergedOptions = { ...options, method: 'GET' as const };
+  if (cachedBuvid3 && !mergedOptions.cookies?.buvid3) {
+    mergedOptions.cookies = mergeBuvid3(mergedOptions.cookies);
+  }
+  let resp = await httpRequest<BiliResponse<T> | BiliBangumiResponse<T>>(url, mergedOptions);
+  let body = resp.data;
+  // ponytail: -352 风控时自动注入 buvid3 并重试一次
+  if (body.code === BILI_CODE_NEED_LOGIN && !cachedBuvid3 && !mergedOptions.cookies?.buvid3) {
+    try {
+      await ensureBuvid3();
+      mergedOptions.cookies = mergeBuvid3(mergedOptions.cookies);
+      resp = await httpRequest<BiliResponse<T> | BiliBangumiResponse<T>>(url, mergedOptions);
+      body = resp.data;
+    } catch {
+      // 获取 buvid3 失败时降级走原始错误路径
+    }
+  }
   if (body.code !== 0) {
     const hint = body.code === BILI_CODE_NEED_LOGIN ? '请先运行 `pilidown login` 完成扫码登录' : undefined;
     throw new BiliApiError(body.code, body.message, url, hint);

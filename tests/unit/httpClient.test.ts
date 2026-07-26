@@ -74,7 +74,14 @@ describe('biliGet', () => {
   });
 
   test('throws BiliApiError with NEED_LOGIN hint when code=-352', async () => {
-    fetchMock.mockResolvedValueOnce(makeResp({ code: BILI_CODE_NEED_LOGIN, message: 'need login' }, 200));
+    // ponytail: biliGet 在 -352 时会尝试 ensureBuvid3()，需要 mock 多次 fetch
+    // (1) view 接口首次返回 -352
+    // (2) ensureBuvid3 访问 bilibili.com 拿 buvid3
+    // (3) view 接口重试仍然返回 -352（buvid3 也救不了 anonymous 测试场景）
+    fetchMock
+      .mockResolvedValueOnce(makeResp({ code: BILI_CODE_NEED_LOGIN, message: 'need login' }, 200))
+      .mockResolvedValueOnce(makeRespBuvid3())
+      .mockResolvedValueOnce(makeResp({ code: BILI_CODE_NEED_LOGIN, message: 'need login' }, 200));
     await expect(biliGet('https://api.bilibili.com/x/web-interface/wbi/view')).rejects.toMatchObject({
       name: 'BiliApiError',
       code: BILI_CODE_NEED_LOGIN,
@@ -116,4 +123,15 @@ function makeResp(body: unknown, status: number): Response {
 
 function makeRespBinary(bytes: Uint8Array, status: number): Response {
   return new Response(bytes, { status });
+}
+
+// ponytail: 模拟访问 bilibili.com 返回带 buvid3 的 Set-Cookie
+function makeRespBuvid3(): Response {
+  return new Response('<html>ok</html>', {
+    status: 200,
+    headers: {
+      'content-type': 'text/html',
+      'set-cookie': 'buvid3=TEST-BUVID3-1234567890; Path=/; Domain=.bilibili.com',
+    },
+  });
 }
