@@ -8,6 +8,7 @@
 import { Command } from 'commander';
 import { registerInfoCommand } from './commands/info';
 import { registerStreamCommand } from './commands/stream';
+import { registerDanmakuCommand } from './commands/danmaku';
 import { registerSubtitleCommand } from './commands/subtitle';
 import { registerLoginCommand } from './commands/login';
 
@@ -20,6 +21,7 @@ program
 
 registerInfoCommand(program);
 registerStreamCommand(program);
+registerDanmakuCommand(program);
 registerSubtitleCommand(program);
 registerLoginCommand(program);
 
