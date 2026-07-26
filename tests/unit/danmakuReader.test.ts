@@ -26,9 +26,10 @@ function stringField(field: number, value: string): number[] {
   return [...encodeVarint(tag(field, 2)), ...encodeVarint(bytes.length), ...bytes];
 }
 
-/** Wrap a DanmakuElem body as a length-delimited field 2 of DmSegMobileReply. */
+/** Wrap a DanmakuElem body as a length-delimited field 1 of DmSegMobileReply.
+ *  B-station dm.proto: field 1 = repeated DanmakuElem elems (NOT field 2). */
 function wrapElem(elemBytes: number[]): number[] {
-  return [...encodeVarint(tag(2, 2)), ...encodeVarint(elemBytes.length), ...elemBytes];
+  return [...encodeVarint(tag(1, 2)), ...encodeVarint(elemBytes.length), ...elemBytes];
 }
 
 function buildSeg(elems: number[][]): Buffer {
@@ -193,8 +194,9 @@ describe('parseDanmaku', () => {
   });
 
   test('returns empty array when seg has no elems (only unknown top-level fields)', () => {
-    // Top-level field 1 (closed bool) but no field 2 (elems).
-    const buf = Buffer.from(varintField(1, 1));
+    // ponytail: real schema is field 1=elems, 2=state, 3=ai_flag.
+    // Top-level varint field 2 (state) should be skipped, returning 0 elems.
+    const buf = Buffer.from(varintField(2, 1));
     expect(parseDanmaku(buf)).toEqual([]);
   });
 

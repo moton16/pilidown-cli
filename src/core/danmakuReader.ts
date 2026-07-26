@@ -17,7 +17,7 @@
  *   wire 1 = 64-bit fixed (unused here)
  *   wire 5 = 32-bit fixed (unused here)
  *
- * DmSegMobileReply { bool closed = 1; repeated DanmakuElem elems = 2; }
+ * DmSegMobileReply { repeated DanmakuElem elems = 1; int32 state = 2; AiFlag ai_flag = 3; }
  * DanmakuElem { int64 id=1; int32 progress=2; int32 mode=3; int32 fontsize=4;
  *               uint32 color=5; string midHash=6; string content=7;
  *               int64 ctime=8; int32 weight=9; string action=10; int32 pool=11; }
@@ -213,8 +213,9 @@ export function parseDanmaku(buffer: Buffer): BiliDanmaku[] {
     offset = afterTag;
     const fieldNumber = tag >>> 3;
     const wireType = tag & 0x07;
-    if (fieldNumber === 2 && wireType === 2) {
-      // elems (repeated DanmakuElem)
+    if (fieldNumber === 1 && wireType === 2) {
+      // elems (repeated DanmakuElem) — DmSegMobileReply schema per B-station
+      // dm.proto: field 1 is the repeated elems list, NOT field 2.
       const [payload, next] = readLengthDelimited(buffer, offset);
       offset = next;
       try {

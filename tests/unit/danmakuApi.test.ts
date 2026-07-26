@@ -33,9 +33,11 @@ function buildElemBytes(fields: { id?: number; progress?: number; mode?: number;
 }
 
 function buildSegBuffer(elems: Array<ReturnType<typeof buildElemBytes>>): Buffer {
+  // ponytail: DmSegMobileReply schema — field 1 = repeated DanmakuElem.
+  // tag byte = (1 << 3) | 2 = 0x0a (NOT 0x12 which would be field 2).
   const out: number[] = [];
   for (const e of elems) {
-    out.push(0x12, ...encodeVarint(e.length), ...e);
+    out.push(0x0a, ...encodeVarint(e.length), ...e);
   }
   return Buffer.from(out);
 }
