@@ -23,7 +23,7 @@ export function registerSpaceCommand(program: Command): void {
     .command('space <mid>')
     .description('View a Bilibili user\'s basic info or their publication list')
     .option('--pub', 'List user\'s uploaded videos instead of basic info')
-    .option('--page <n>', 'Page number (1-based) for --pub listing', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based) for --pub listing', (v: string) => parseInt(v, 10), 1)
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
       async (

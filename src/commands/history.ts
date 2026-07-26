@@ -25,7 +25,7 @@ export function registerHistoryCommand(program: Command): void {
     .command('history')
     .description('View Bilibili watch history or "to-view" list (requires login)')
     .option('--toview', 'Show "稍后再看" (to-view) list instead of watch history')
-    .option('--page <n>', 'Page number (1-based) for history records', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based) for history records', (v: string) => parseInt(v, 10), 1)
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
       async (opts: { toview?: boolean; page: number; json?: boolean }) => {

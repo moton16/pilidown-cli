@@ -26,7 +26,7 @@ export function registerDanmakuCommand(program: Command): void {
     .description('Fetch and convert danmaku for a Bilibili video (ass/xml/raw)')
     .option('--format <fmt>', 'Output format: ass (default), xml (Bilibili XML), raw (protobuf bytes)', 'ass')
     .option('--output <path>', 'Write to file instead of stdout')
-    .option('--page <n>', 'Page number (1-based)', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based)', (v: string) => parseInt(v, 10), 1)
     .option('--json', 'Emit JSON Lines progress events (for agent use)')
     .action(
       async (

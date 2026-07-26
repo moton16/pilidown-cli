@@ -68,7 +68,7 @@ export function registerSubtitleCommand(program: Command): void {
     .description('Fetch and convert Bilibili subtitles for a video')
     .option('--format <fmt>', 'Output format: srt | json | ass', 'srt')
     .option('--output <path>', 'Write to file instead of stdout')
-    .option('--page <n>', 'Page number (1-based)', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based)', (v: string) => parseInt(v, 10), 1)
     .option('--lan <code>', 'Subtitle language code (e.g. zh-CN); default first available')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(

@@ -26,7 +26,7 @@ export function registerFavCommand(program: Command): void {
     .description('List a user\'s favorite folders, or videos inside a specific folder')
     .option('--user <mid>', 'Target user UID (alternative to positional <mid>)', parseMid)
     .option('--media <media_id>', 'Folder media_id; when set, list videos inside this folder', parseMid)
-    .option('--page <n>', 'Page number (1-based) for --media listing', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based) for --media listing', (v: string) => parseInt(v, 10), 1)
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
       async (

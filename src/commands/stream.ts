@@ -17,7 +17,7 @@ export function registerStreamCommand(program: Command): void {
     .description('Fetch and select stream URLs for a Bilibili video')
     .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
-    .option('--page <n>', 'Page number (1-based)', parseInt, 1)
+    .option('--page <n>', 'Page number (1-based)', (v: string) => parseInt(v, 10), 1)
     .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--json', 'Output as JSON Lines (for agent use)')
