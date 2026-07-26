@@ -151,3 +151,33 @@ export interface PlayerV2Info {
   cid: number;
   subtitle: SubtitleInfo;
 }
+
+/**
+ * Single subtitle line item from a fetched subtitle JSON body.
+ * Ported from DownKyi.Core/BiliApi/Models/Json/Subtitle.cs
+ * (location field dropped — pilidown uses fixed bottom-center layout.)
+ */
+export interface SubtitleBody {
+  from: number;
+  to: number;
+  content: string;
+}
+
+/**
+ * Bilibili 弹幕条目。
+ * Ported from DownKyi.Core/BiliApi/Danmaku/Models/BiliDanmaku.cs
+ * Field numbers correspond to DanmakuElem in bilibili/community/service/dm/v1/dm.proto.
+ */
+export interface BiliDanmaku {
+  id: number;          // field 1, int64  弹幕 dmID
+  progress: number;    // field 2, int32  出现时间(ms)
+  mode: number;        // field 3, int32  弹幕类型(1=滚动 4=底部 5=顶部 6=逆向滚动 7=高级 8=代码 9=BAS)
+  fontsize: number;    // field 4, int32  字体大小
+  color: number;       // field 5, uint32 颜色
+  midHash: string;     // field 6, string 发送者 UID 的 HASH
+  content: string;     // field 7, string 弹幕内容
+  ctime: number;       // field 8, int64  发送时间
+  weight: number;      // field 9, int32  权重
+  action: string;      // field 10, string 动作
+  pool: number;        // field 11, int32 弹幕池
+}

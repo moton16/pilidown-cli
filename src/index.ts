@@ -8,6 +8,8 @@
 import { Command } from 'commander';
 import { registerInfoCommand } from './commands/info';
 import { registerStreamCommand } from './commands/stream';
+import { registerSubtitleCommand } from './commands/subtitle';
+import { registerLoginCommand } from './commands/login';
 
 const program = new Command();
 
@@ -18,5 +20,7 @@ program
 
 registerInfoCommand(program);
 registerStreamCommand(program);
+registerSubtitleCommand(program);
+registerLoginCommand(program);
 
 program.parse(process.argv);
