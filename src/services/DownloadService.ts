@@ -32,6 +32,7 @@ export interface DownloadVideoOptions {
   preferCodec?: number;
   preferHiRes?: boolean;
   preferDolby?: boolean;
+  preferAudioId?: number;
   outputDir: string;
   filename?: string; // override base name (no extension)
   threads?: number;
@@ -103,6 +104,7 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
   const selected = selectStreams(playUrl, {
     preferQn: opts.preferQn,
     preferCodec: opts.preferCodec,
+    preferAudioId: opts.preferAudioId,
     preferHiRes: opts.preferHiRes,
     preferDolby: opts.preferDolby,
   });

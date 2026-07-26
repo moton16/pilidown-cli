@@ -86,6 +86,19 @@ export function registerStreamCommand(program: Command): void {
                   backupUrls: selected.audio.baseBackupUrl,
                 }
               : null,
+            allVideos: (playUrl.dash?.video ?? []).map(v => ({
+              quality: v.id,
+              codec: v.codecid,
+              width: v.width,
+              height: v.height,
+              bandwidth: v.bandwidth,
+              codecs: v.codecs,
+            })),
+            allAudios: (playUrl.dash?.audio ?? []).map(a => ({
+              id: a.id,
+              bandwidth: a.bandwidth,
+              codecs: a.codecs,
+            })),
             quality: selected.quality,
             acceptQuality: selected.acceptQuality,
             acceptDescription: selected.acceptDescription,
@@ -112,6 +125,8 @@ function printHuman(r: {
   page: { index: number; part: string; cid: number; duration: number };
   video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl: string } | null;
   audio: { id: number; bandwidth: number; codecs: string; baseUrl: string } | null;
+  allVideos: { quality: number; codec: number; width: number; height: number; bandwidth: number; codecs: string }[];
+  allAudios: { id: number; bandwidth: number; codecs: string }[];
   acceptQuality: number[];
   acceptDescription: string[];
 }): void {
@@ -120,18 +135,20 @@ function printHuman(r: {
   console.log(`分P: P${r.page.index} ${r.page.part} (cid=${r.page.cid})`);
   console.log(`可获取画质: ${r.acceptDescription.join(', ')}`);
   console.log(`qn 列表: ${r.acceptQuality.join(', ')}`);
+  console.log(`\n可选视频流 (${r.allVideos.length}):`);
+  for (const v of r.allVideos) {
+    const sel = r.video && r.video.quality === v.quality && r.video.codecs === v.codecs ? ' ← 已选' : '';
+    console.log(`  qn=${v.quality}  ${v.width}x${v.height}  codec=${v.codecs}  bw=${v.bandwidth}${sel}`);
+  }
+  console.log(`\n可选音频流 (${r.allAudios.length}):`);
+  for (const a of r.allAudios) {
+    const sel = r.audio && r.audio.id === a.id ? ' ← 已选' : '';
+    console.log(`  id=${a.id}  codec=${a.codecs}  bw=${a.bandwidth}${sel}`);
+  }
   if (r.video) {
-    console.log(
-      `视频流: qn=${r.video.quality}  ${r.video.width}x${r.video.height}  codec=${r.video.codecs}  bw=${r.video.bandwidth}`,
-    );
-    console.log(`  URL: ${r.video.baseUrl}`);
-  } else {
-    console.log('视频流: (无)');
+    console.log(`\n选中视频 URL: ${r.video.baseUrl}`);
   }
   if (r.audio) {
-    console.log(`音频流: id=${r.audio.id}  codec=${r.audio.codecs}  bw=${r.audio.bandwidth}`);
-    console.log(`  URL: ${r.audio.baseUrl}`);
-  } else {
-    console.log('音频流: (无)');
+    console.log(`选中音频 URL: ${r.audio.baseUrl}`);
   }
 }

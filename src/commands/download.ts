@@ -20,6 +20,7 @@ export function registerDownloadCommand(program: Command): void {
     .description('Download a Bilibili video (multi-thread + ffmpeg merge)')
     .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
+    .option('--audio-quality <id>', 'Preferred audio id (30216=64k, 30232=132k, 30280=192k, 30250=Dolby, 30251=Hi-Res)', (v: string) => parseInt(v, 10))
     .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--page <n>', 'Specific page number (1-based). Use --all to download all pages.', (v: string) => parseInt(v, 10), 1)
@@ -36,6 +37,7 @@ export function registerDownloadCommand(program: Command): void {
         opts: {
           quality: string;
           codec?: number;
+          audioQuality?: number;
           hires: boolean;
           dolby?: boolean;
           page: number;
@@ -63,6 +65,7 @@ export function registerDownloadCommand(program: Command): void {
             aid: parsed.aid,
             preferQn: parseInt(opts.quality, 10),
             preferCodec: opts.codec,
+            preferAudioId: opts.audioQuality,
             preferHiRes: opts.hires,
             preferDolby: opts.dolby,
             outputDir: opts.output,

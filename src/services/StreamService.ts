@@ -44,7 +44,7 @@ export function selectVideoStream(
 
 export function selectAudioStream(
   playUrl: PlayUrlResponse,
-  opts: { preferHiRes?: boolean; preferDolby?: boolean } = {},
+  opts: { preferAudioId?: number; preferHiRes?: boolean; preferDolby?: boolean } = {},
 ): DashAudio | undefined {
   const dash = playUrl.dash;
   if (!dash) return undefined;
@@ -55,12 +55,17 @@ export function selectAudioStream(
     return dash.flac.audio;
   }
   if (!dash.audio?.length) return undefined;
+  // ponytail: user-specified audio id takes priority over bandwidth ranking
+  if (opts.preferAudioId !== undefined) {
+    const matched = dash.audio.filter(a => a.id === opts.preferAudioId);
+    if (matched.length) return matched[0];
+  }
   return dash.audio.slice().sort((a, b) => b.bandwidth - a.bandwidth)[0];
 }
 
 export function selectStreams(
   playUrl: PlayUrlResponse,
-  opts: { preferQn?: number; preferCodec?: number; preferHiRes?: boolean; preferDolby?: boolean } = {},
+  opts: { preferQn?: number; preferCodec?: number; preferAudioId?: number; preferHiRes?: boolean; preferDolby?: boolean } = {},
 ): SelectedStreams {
   return {
     video: selectVideoStream(playUrl, opts.preferQn, opts.preferCodec),
