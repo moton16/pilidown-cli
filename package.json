@@ -1,6 +1,6 @@
 {
   "name": "pilidown",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Lightweight Bilibili downloader CLI for TRAE Skill integration",
   "type": "commonjs",
   "main": "bin/cli.cjs",
