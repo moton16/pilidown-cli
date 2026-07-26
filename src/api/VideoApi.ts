@@ -13,24 +13,9 @@
  */
 
 import { biliGet } from '../utils/httpClient';
-import { wbiKeyManager } from '../services/WbiKeyManager';
-import { encWbi } from '../core/wbi';
+import { signWbiQuery } from '../utils/wbiSign';
 import { FNVAL_DEFAULT } from '../core/constants';
 import type { BiliNavData, VideoInfo, PlayUrlResponse, PlayerV2Info } from '../types/bili';
-
-/**
- * Sign a parameter bag with WBI and return a URL query string (with wts + w_rid appended).
- * Mirrors C# `WbiSign.ParametersToQuery(WbiSign.EncodeWbi(parameters))`.
- */
-async function signWbiQuery(params: Record<string, string | number>): Promise<string> {
-  const mixinKey = await wbiKeyManager.getMixinKey();
-  const wts = Math.floor(Date.now() / 1000);
-  const w_rid = encWbi(params, mixinKey, wts);
-  const all: Record<string, string | number> = { ...params, wts, w_rid };
-  return Object.entries(all)
-    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
-    .join('&');
-}
 
 /** GET /x/web-interface/nav — login state + WBI keys (anonymous OK). */
 export async function getNavInfo(): Promise<BiliNavData> {

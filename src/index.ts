@@ -12,6 +12,11 @@ import { registerDownloadCommand } from './commands/download';
 import { registerDanmakuCommand } from './commands/danmaku';
 import { registerSubtitleCommand } from './commands/subtitle';
 import { registerLoginCommand } from './commands/login';
+import { registerBangumiCommand } from './commands/bangumi';
+import { registerCheeseCommand } from './commands/cheese';
+import { registerFavCommand } from './commands/fav';
+import { registerHistoryCommand } from './commands/history';
+import { registerSpaceCommand } from './commands/space';
 
 const program = new Command();
 
@@ -26,5 +31,10 @@ registerDownloadCommand(program);
 registerDanmakuCommand(program);
 registerSubtitleCommand(program);
 registerLoginCommand(program);
+registerBangumiCommand(program);
+registerCheeseCommand(program);
+registerFavCommand(program);
+registerHistoryCommand(program);
+registerSpaceCommand(program);
 
 program.parse(process.argv);

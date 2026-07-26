@@ -181,3 +181,265 @@ export interface BiliDanmaku {
   action: string;      // field 10, string 动作
   pool: number;        // field 11, int32 弹幕池
 }
+
+/**
+ * 番剧单集信息。
+ * Ported from DownKyi.Core/BiliApi/Bangumi/Models/BangumiEpisode.cs
+ * (字段精简：仅保留 pilidown 命令所需。)
+ */
+export interface BangumiEpisode {
+  aid: number;
+  bvid?: string;
+  cid: number;
+  id: number;          // 即 ep_id（剧集 ID）
+  epid?: number;       // 部分接口会重复返回 epid
+  title: string;
+  long_title: string;
+  duration: number;
+  status: number;
+  cover: string;
+  pub_time?: number;
+  share_url?: string;
+  short_link?: string;
+}
+
+/**
+ * 番剧（季）信息。
+ * Ported from DownKyi.Core/BiliApi/Bangumi/Models/BangumiSeason.cs
+ * + BangumiStat.cs + BangumiUpInfo.cs + BangumiArea.cs
+ * (字段精简：仅保留 pilidown 命令所需。)
+ */
+export interface BangumiSeasonInfo {
+  season_id: number;
+  media_id: number;
+  title: string;
+  season_title?: string;
+  cover: string;
+  evaluate: string;
+  areas: { id?: number; name: string }[];
+  episodes: BangumiEpisode[];
+  up_info?: { mid: number; uname: string; avatar?: string };
+  stat: {
+    views: number;
+    danmakus: number;
+    coins: number;
+    favorites: number;
+    likes?: number;
+    reply?: number;
+    share?: number;
+  };
+  type?: number;
+  total?: number;
+  share_url?: string;
+}
+
+/**
+ * 课程单集信息。
+ * Ported from DownKyi.Core/BiliApi/Cheese/Models/CheeseEpisode.cs
+ * (字段精简：仅保留 pilidown 命令所需。)
+ */
+export interface CheeseEpisode {
+  id: number;          // 即 ep_id（剧集 ID）
+  epid?: number;
+  aid: number;
+  cid: number;
+  title: string;
+  long_title?: string;
+  duration: number;
+  status: number;
+  cover: string;
+  index?: number;
+  page?: number;
+  release_date?: number;
+}
+
+/**
+ * 课程（季）信息。
+ * Ported from DownKyi.Core/BiliApi/Cheese/Models/CheeseView.cs
+ * + CheeseStat.cs + CheeseUpInfo.cs
+ * (字段精简：仅保留 pilidown 命令所需。)
+ */
+export interface CheeseSeasonInfo {
+  season_id: number;
+  title: string;
+  cover: string;
+  evaluate?: string;
+  subtitle?: string;
+  episodes: CheeseEpisode[];
+  up_info: { mid: number; uname: string; avatar?: string; brief?: string; follower?: number };
+  stat: {
+    views: number;
+    play_desc?: string;
+  };
+  share_url?: string;
+}
+
+/**
+ * /pgc/review/user 返回的 media 摘要。
+ * Ported from DownKyi.Core/BiliApi/Bangumi/Models/BangumiMedia.cs
+ */
+export interface BangumiMediaInfo {
+  media_id: number;
+  season_id: number;
+  title: string;
+  cover: string;
+  type_name?: string;
+  share_url?: string;
+  areas?: { id?: number; name: string }[];
+}
+
+/**
+ * 收藏夹元信息。
+ * Ported from DownKyi.Core/BiliApi/Favorites/Models/FavoritesMetaInfo.cs
+ * API: GET /x/v3/fav/folder/created/list?up_mid=<mid>
+ */
+export interface FavoritesFolder {
+  id: number;
+  fid: number;
+  mid: number;
+  uid: number;
+  title: string;
+  media_count: number;
+  cover: string;
+  intro: string;
+  ctime: number;
+  mtime: number;
+  fav_state: number;
+  like_state: number;
+  upper: { mid: number; name: string; face: string; followed?: boolean };
+  cnt_info: { collect: number; play: number; thumb_up?: number; share?: number };
+}
+
+/**
+ * 收藏夹内的视频资源条目。
+ * Ported from DownKyi.Core/BiliApi/Favorites/Models/FavoritesMedia.cs
+ * API: GET /x/v3/fav/resource/list?media_id=<id>
+ */
+export interface FavoritesResource {
+  id: number;
+  type: number;
+  title: string;
+  cover: string;
+  intro: string;
+  page: number;
+  duration: number;
+  upper: { mid: number; name: string; face: string };
+  cnt_info: { collect: number; play: number; danmaku: number };
+  link: string;
+  ctime: number;
+  pubdate: number;
+  fav_time: number;
+  bvid: string;
+}
+
+/**
+ * 历史记录单条。
+ * Ported from DownKyi.Core/BiliApi/History/Models/HistoryList.cs
+ * API: GET /x/v2/history?pn=<pn>
+ */
+export interface HistoryItem {
+  aid: number;
+  bvid: string;
+  videos: number;
+  title: string;
+  cover: string;
+  uri: string;
+  duration: number;
+  pubdate: number;
+  view_at: number;
+  progress: number;
+  badge: string;
+  show_title: string;
+  cid: number;
+  owner: { mid: number; name: string; face: string };
+  history: {
+    oid: number;
+    epid?: number;
+    bvid: string;
+    page: number;
+    cid: number;
+    part: string;
+    business: string;
+    dt: number;
+  };
+}
+
+/**
+ * 稍后再看视频条目。
+ * Ported from DownKyi.Core/BiliApi/History/Models/ToViewList.cs
+ * API: GET /x/v2/history/toview/web
+ */
+export interface ToViewVideo {
+  aid: number;
+  bvid: string;
+  title: string;
+  pic: string;
+  cover?: string;
+  duration: number;
+  pubdate: number;
+  cid: number;
+  add_at: number;
+  owner: { mid: number; name: string; face: string };
+}
+
+/**
+ * 用户空间基本信息。
+ * Ported from DownKyi.Core/BiliApi/Users/Models/UserInfoForSpace.cs
+ * API: GET /x/space/wbi/acc/info?mid=<mid> (WBI signed)
+ */
+export interface UserInfo {
+  mid: number;
+  name: string;
+  sex: string;
+  face: string;
+  sign: string;
+  level: number;
+  top_photo?: string;
+  is_followed?: boolean;
+  vip: {
+    type: number;
+    status: number;
+    due_date?: number;
+    label: { text: string; label_theme?: string; text_color?: string };
+    avatar_subscript?: number;
+    nickname_color?: string;
+  };
+}
+
+/**
+ * 用户投稿视频条目。
+ * Ported from DownKyi.Core/BiliApi/Users/Models/SpacePublicationListVideo.cs
+ * API: GET /x/space/wbi/arc/search?mid=<mid> (WBI signed)
+ */
+export interface UserPublicationVideo {
+  aid: number;
+  bvid: string;
+  title: string;
+  pic: string;
+  cover?: string;
+  typeid: number;
+  play: number;
+  mid: number;
+  created: number;
+  length: string;
+  duration?: number;
+  pubdate?: number;
+  danmaku?: number;
+  reply?: number;
+  owner?: { mid: number; name: string; face: string };
+}
+
+/**
+ * 用户频道条目。
+ * Ported from DownKyi.Core/BiliApi/Users/Models/SpaceChannelList.cs
+ * API: GET /x/space/channel/list?mid=<mid>
+ */
+export interface UserChannel {
+  cid: number;
+  mid: number;
+  name: string;
+  intro: string;
+  mtime: number;
+  count: number;
+  cover: string;
+}
