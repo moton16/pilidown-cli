@@ -59,6 +59,43 @@ export interface VideoInfo {
     like: number;
   };
   pages: VideoPage[];
+  ugc_season?: UgcSeason;
+}
+
+/**
+ * UGC 合集（用户创建的视频集合）。
+ * Ported from DownKyi.Core/BiliApi/Video/Models/UgcSeason.cs
+ * B 站 view API 在视频属于合集时返回此字段，包含完整视频列表。
+ */
+export interface UgcSeason {
+  id: number;
+  title: string;
+  cover: string;
+  mid: number;
+  intro: string;
+  ep_count: number;
+  season_type: number;
+  sections: UgcSection[];
+}
+
+export interface UgcSection {
+  season_id: number;
+  id: number;
+  title: string;
+  type: number;
+  episodes: UgcEpisode[];
+}
+
+export interface UgcEpisode {
+  season_id: number;
+  section_id: number;
+  id: number;
+  aid: number;
+  cid: number;
+  title: string;
+  bvid: string;
+  page?: number;
+  duration?: number;
 }
 
 export interface BiliNavData {

@@ -10,7 +10,7 @@
 import type { Command } from 'commander';
 import { mkdirSync } from 'node:fs';
 import { parseEntrance } from '../core/parseEntrance';
-import { downloadVideo, downloadAllPages } from '../services/DownloadService';
+import { downloadVideo, downloadAllPages, downloadCollection } from '../services/DownloadService';
 import { findFfmpeg } from '../utils/ffmpeg';
 import { setJsonMode, info as logInfo, error as logError } from '../utils/logger';
 
@@ -25,6 +25,7 @@ export function registerDownloadCommand(program: Command): void {
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--page <n>', 'Specific page number (1-based). Use --all to download all pages.', (v: string) => parseInt(v, 10), 1)
     .option('--all', 'Download all pages (overrides --page)')
+    .option('--collection', 'Download entire UGC collection (合集) — input any bvid in the collection')
     .option('--output <dir>', 'Output directory', '.')
     .option('--filename <name>', 'Override base filename (no extension)')
     .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
@@ -42,6 +43,7 @@ export function registerDownloadCommand(program: Command): void {
           dolby?: boolean;
           page: number;
           all?: boolean;
+          collection?: boolean;
           output: string;
           filename?: string;
           threads: number;
@@ -82,6 +84,17 @@ export function registerDownloadCommand(program: Command): void {
               console.log(`Downloaded ${results.length} pages:`);
               for (const r of results) {
                 console.log(`  P${r.page}: ${r.mergedPath ?? r.videoPath ?? '(failed)'}`);
+              }
+            }
+          } else if (opts.collection) {
+            const results = await downloadCollection(baseOpts);
+            if (opts.json) {
+              process.stdout.write(JSON.stringify({ event: 'download-collection', data: { results } }) + '\n');
+            } else {
+              console.log(`Downloaded ${results.length} collection episodes:`);
+              for (let i = 0; i < results.length; i++) {
+                const r = results[i];
+                console.log(`  ep${i + 1}: ${r.mergedPath ?? r.videoPath ?? '(failed)'}`);
               }
             }
           } else {

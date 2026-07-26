@@ -55,6 +55,17 @@ function printHuman(info: VideoInfo): void {
       console.log(`  P${p.page}: ${p.part} (cid=${p.cid}, ${formatDuration(p.duration)})`);
     }
   }
+  if (info.ugc_season) {
+    const s = info.ugc_season;
+    console.log(`\n合集: ${s.title} (id=${s.id}, 共 ${s.ep_count} 集)`);
+    if (s.intro) console.log(`合集简介: ${s.intro}`);
+    for (const section of s.sections ?? []) {
+      console.log(`  分区: ${section.title} (${section.episodes?.length ?? 0} 集)`);
+      for (const ep of section.episodes ?? []) {
+        console.log(`  - ep${ep.id}  ${ep.title}  bvid=${ep.bvid}  cid=${ep.cid}`);
+      }
+    }
+  }
 }
 
 function formatDuration(seconds: number): string {

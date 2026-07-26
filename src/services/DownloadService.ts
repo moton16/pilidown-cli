@@ -204,6 +204,52 @@ export async function downloadAllPages(
   return results;
 }
 
+/**
+ * Download an entire UGC collection (合集).
+ * Input any bvid belonging to the collection → fetch all episodes → download each.
+ * Ported from DownKyi's "下载合集" workflow.
+ */
+export async function downloadCollection(
+  opts: Omit<DownloadVideoOptions, 'page'>,
+): Promise<DownloadResult[]> {
+  const info = await getVideoInfo({ bvid: opts.bvid, aid: opts.aid });
+  if (!info.ugc_season) {
+    throw new Error(`${info.bvid} does not belong to a UGC collection (ugc_season missing)`);
+  }
+  // ponytail: flatten sections → episode list → download each as its own video
+  const episodes: { bvid: string; aid: number; cid: number; title: string }[] = [];
+  for (const section of info.ugc_season.sections ?? []) {
+    for (const ep of section.episodes ?? []) {
+      episodes.push({ bvid: ep.bvid, aid: ep.aid, cid: ep.cid, title: ep.title });
+    }
+  }
+  const concurrency = 3;
+  const results: DownloadResult[] = [];
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < episodes.length) {
+      const idx = cursor++;
+      const ep = episodes[idx];
+      try {
+        const r = await downloadVideo({
+          ...opts,
+          bvid: ep.bvid,
+          aid: ep.aid,
+          page: 1,
+          filename: opts.filename
+            ? `${opts.filename}-ep${idx + 1}-${ep.title}`
+            : `${info.ugc_season!.title}-ep${idx + 1}-${ep.title}`,
+        });
+        results.push(r);
+      } catch (err) {
+        logError('collection episode failed', { episode: idx + 1, bvid: ep.bvid, error: (err as Error).message });
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, episodes.length) }, () => worker()));
+  return results;
+}
+
 function existsSafe(p: string): boolean {
   try { return require('node:fs').existsSync(p); } catch { return false; }
 }
