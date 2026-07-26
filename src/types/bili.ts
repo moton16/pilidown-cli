@@ -113,3 +113,41 @@ export interface PlayUrlResponse {
   dash: PlayUrlDash;
   durl?: unknown[];
 }
+
+/**
+ * Subtitle entry inside PlayerV2.subtitle.subtitles[].
+ * Ported from DownKyi.Core/BiliApi/VideoStream/Models/Subtitle.cs
+ */
+export interface BiliSubtitle {
+  id: number;
+  lan: string;
+  lan_doc: string;
+  is_lock: boolean;
+  author_mid: number;
+  subtitle_url: string;
+  type: number;
+  id_str?: string;
+}
+
+/**
+ * Subtitle info wrapper.
+ * Ported from DownKyi.Core/BiliApi/VideoStream/Models/SubtitleInfo.cs
+ */
+export interface SubtitleInfo {
+  allow_submit: boolean;
+  lan?: string;
+  lan_doc?: string;
+  subtitles: BiliSubtitle[];
+}
+
+/**
+ * Player info from /x/player/wbi/v2.
+ * Ported from DownKyi.Core/BiliApi/VideoStream/Models/PlayerV2.cs
+ * Only fields used by pilidown (aid/bvid/cid/subtitle) — others omitted (YAGNI).
+ */
+export interface PlayerV2Info {
+  aid: number;
+  bvid: string;
+  cid: number;
+  subtitle: SubtitleInfo;
+}
