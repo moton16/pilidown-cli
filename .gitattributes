@@ -1,0 +1,16 @@
+# Auto-detect text files
+* text=auto
+
+# Windows-specific files must use CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Unix-specific files must use LF
+bin/pilidown text eol=lf
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.bin binary

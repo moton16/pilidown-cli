@@ -1,0 +1,41 @@
+{
+  "name": "pilidown",
+  "version": "0.0.0",
+  "description": "Lightweight Bilibili downloader CLI for TRAE Skill integration",
+  "type": "commonjs",
+  "main": "bin/cli.cjs",
+  "bin": {
+    "pilidown": "bin/pilidown.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "keywords": [
+    "bilibili",
+    "downloader",
+    "cli",
+    "danmaku",
+    "subtitle",
+    "trae-skill"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.0.0",
+    "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.21.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+bin/cli.cjs
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# User data (should never be committed)
+cookies.json
+config.json
+.pilidown/
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.bak
