@@ -13,7 +13,7 @@
 
 import type { Command } from 'commander';
 import { generateQrCode, pollLoginStatus, QR_STATUS } from '../api/LoginApi';
-import { printQrCodeInTerminal } from '../utils/qrcode';
+import { printQrCodeInTerminal, saveQrCodePng, startQrHttpServer } from '../utils/qrcode';
 import { loadCookies, saveCookies, mergeCookies } from '../services/CookieService';
 import { setJsonMode, info, warn, error as logError, isJsonMode } from '../utils/logger';
 
@@ -25,22 +25,35 @@ export function registerLoginCommand(program: Command): void {
     .command('login')
     .description('Scan QR code with the Bilibili mobile app to log in')
     .option('--json', 'Output as JSON Lines (for agent use)')
-    .option('--timeout <seconds>', 'Max polling duration in seconds', parseInt, DEFAULT_TIMEOUT_SEC)
-    .action(async (opts: { json?: boolean; timeout: number }) => {
+    .option('--timeout <seconds>', 'Max polling duration in seconds', (v: string) => parseInt(v, 10), DEFAULT_TIMEOUT_SEC)
+    .option('--qr-png <path>', 'Save QR code as PNG file instead of starting HTTP server')
+    .action(async (opts: { json?: boolean; timeout: number; qrPng?: string }) => {
       if (opts.json) setJsonMode(true);
       const maxAttempts = Math.max(1, Math.floor((opts.timeout * 1000) / POLL_INTERVAL_MS));
+      let closeHttp: (() => void) | null = null;
       try {
         const { url, qrcodeKey } = await generateQrCode();
 
         if (isJsonMode()) {
           // JSON Lines: emit machine-readable QR url + key so agents can render or display it.
           info('qrcode', { url, qrcodeKey });
-        } else {
-          console.log('请使用 Bilibili 手机 App 扫描下方二维码登录：');
+        } else if (opts.qrPng) {
+          // --qr-png 模式：保存 PNG 文件（fallback）
+          const pngPath = await saveQrCodePng(url, opts.qrPng);
+          console.log('请使用 Bilibili 手机 App 扫描二维码登录：');
           console.log('');
           await printQrCodeInTerminal(url);
           console.log('');
-          console.log(`(若二维码无法识别，可手动访问此 URL: ${url})`);
+          console.log(`(若上方 ASCII 二维码扫不出，请打开 PNG 文件扫描：${pngPath})`);
+        } else {
+          // 默认模式：启动本地 HTTP 服务器，主人在浏览器打开 URL 看二维码
+          const srv = await startQrHttpServer(url);
+          closeHttp = srv.close;
+          console.log('请使用 Bilibili 手机 App 扫描二维码登录：');
+          console.log('');
+          console.log(`  浏览器打开此 URL 查看二维码：${srv.url}`);
+          console.log('');
+          console.log('(二维码有效期内保持此窗口运行，登录成功后自动退出)');
         }
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -112,6 +125,8 @@ export function registerLoginCommand(program: Command): void {
       } catch (err) {
         logError('login failed', { error: (err as Error).message });
         process.exitCode = 1;
+      } finally {
+        if (closeHttp) closeHttp();
       }
     });
 }

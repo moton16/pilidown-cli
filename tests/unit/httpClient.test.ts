@@ -3,13 +3,22 @@
  * Original: tests are original to pilidown (not ported from DownKyi).
  */
 
-import { httpRequest, biliGet, downloadBuffer } from '../../src/utils/httpClient';
+import { httpRequest, biliGet, downloadBuffer, __setBuvid3ForTest } from '../../src/utils/httpClient';
 import { BiliApiError, NetworkError, BILI_CODE_NEED_LOGIN } from '../../src/types/errors';
+
+jest.mock('../../src/services/CookieService', () => ({
+  loadCookies: jest.fn(() => ({ cookies: {} })),
+  saveCookies: jest.fn(),
+  mergeCookies: jest.fn((a: Record<string, string>, b: Record<string, string>) => ({ ...a, ...b })),
+  clearCookies: jest.fn(),
+  toCookieHeader: jest.fn((cookies: Record<string, string>) => Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ')),
+}));
 
 type FetchMock = typeof fetch;
 let fetchMock: jest.SpyInstance;
 
 beforeEach(() => {
+  __setBuvid3ForTest('TEST-BUVID3');
   fetchMock = jest.spyOn(globalThis, 'fetch');
 });
 

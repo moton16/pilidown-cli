@@ -34,7 +34,7 @@ function a(id: number, bandwidth: number): DashAudio {
   };
 }
 
-function buildPlayUrl(over: Partial<PlayUrlResponse> = {}): PlayUrlResponse {
+function buildPlayUrl(over: Partial<PlayUrlResponse> = {}): PlayUrlResponse & { dash: NonNullable<PlayUrlResponse['dash']> } {
   return {
     quality: 80,
     format: 0,

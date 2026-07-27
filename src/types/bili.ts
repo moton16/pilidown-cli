@@ -140,6 +140,14 @@ export interface PlayUrlDash {
   flac?: { display: boolean; audio: DashAudio };
 }
 
+export interface PlayUrlDurl {
+  order: number;
+  length: number;
+  size: number;
+  url: string;
+  backup_url?: string[];
+}
+
 export interface PlayUrlResponse {
   quality: number;
   format: number;
@@ -147,8 +155,8 @@ export interface PlayUrlResponse {
   accept_quality: number[];
   accept_description: string[];
   support_formats: { quality: number; format: string; new_description: string; codecs: string[] }[];
-  dash: PlayUrlDash;
-  durl?: unknown[];
+  dash?: PlayUrlDash;
+  durl?: PlayUrlDurl[];
 }
 
 /**

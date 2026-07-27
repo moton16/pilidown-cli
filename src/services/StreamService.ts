@@ -12,15 +12,28 @@
  * Dolby Atmos > Hi-Res FLAC > regular audio when enabled.
  */
 
-import type { PlayUrlResponse, DashVideo, DashAudio } from '../types/bili';
+import type { PlayUrlResponse, DashVideo, DashAudio, PlayUrlDurl } from '../types/bili';
 
 export interface SelectedStreams {
   video?: DashVideo;
   audio?: DashAudio;
+  durl?: PlayUrlDurl; // legacy FLV/MP4 single-file fallback
   quality: number;
   acceptQuality: number[];
   acceptDescription: string[];
   supportFormats: PlayUrlResponse['support_formats'];
+}
+
+export function selectDurlStream(playUrl: PlayUrlResponse, preferQn?: number): PlayUrlDurl | undefined {
+  const durls = playUrl.durl;
+  if (!durls?.length) return undefined;
+  // ponytail: durl has only one item in practice; if multiple, prefer the one matching qn.
+  if (preferQn !== undefined) {
+    const fmt = playUrl.support_formats?.find(f => f.quality === preferQn);
+    const matched = durls.find(d => fmt?.format && d.url.includes(`-${fmt.format}.`));
+    if (matched) return matched;
+  }
+  return durls.slice().sort((a, b) => b.size - a.size)[0];
 }
 
 export function selectVideoStream(
@@ -67,9 +80,13 @@ export function selectStreams(
   playUrl: PlayUrlResponse,
   opts: { preferQn?: number; preferCodec?: number; preferAudioId?: number; preferHiRes?: boolean; preferDolby?: boolean } = {},
 ): SelectedStreams {
+  const video = selectVideoStream(playUrl, opts.preferQn, opts.preferCodec);
+  const audio = selectAudioStream(playUrl, opts);
+  const durl = !video && !audio ? selectDurlStream(playUrl, opts.preferQn) : undefined;
   return {
-    video: selectVideoStream(playUrl, opts.preferQn, opts.preferCodec),
-    audio: selectAudioStream(playUrl, opts),
+    video,
+    audio,
+    durl,
     quality: playUrl.quality,
     acceptQuality: playUrl.accept_quality,
     acceptDescription: playUrl.accept_description,

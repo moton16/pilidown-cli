@@ -86,6 +86,14 @@ export function registerStreamCommand(program: Command): void {
                   backupUrls: selected.audio.baseBackupUrl,
                 }
               : null,
+            durl: selected.durl
+              ? {
+                  size: selected.durl.size,
+                  length: selected.durl.length,
+                  baseUrl: selected.durl.url,
+                  backupUrls: selected.durl.backup_url,
+                }
+              : null,
             allVideos: (playUrl.dash?.video ?? []).map(v => ({
               quality: v.id,
               codec: v.codecid,
@@ -125,6 +133,7 @@ function printHuman(r: {
   page: { index: number; part: string; cid: number; duration: number };
   video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl: string } | null;
   audio: { id: number; bandwidth: number; codecs: string; baseUrl: string } | null;
+  durl: { size: number; length: number; baseUrl: string } | null;
   allVideos: { quality: number; codec: number; width: number; height: number; bandwidth: number; codecs: string }[];
   allAudios: { id: number; bandwidth: number; codecs: string }[];
   acceptQuality: number[];
@@ -150,5 +159,9 @@ function printHuman(r: {
   }
   if (r.audio) {
     console.log(`选中音频 URL: ${r.audio.baseUrl}`);
+  }
+  if (r.durl) {
+    console.log(`\n[单文件/兼容流] 大小=${(r.durl.size / 1024 / 1024).toFixed(2)} MB 时长=${r.durl.length}ms`);
+    console.log(`选中 URL: ${r.durl.baseUrl}`);
   }
 }

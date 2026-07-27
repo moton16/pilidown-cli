@@ -5,10 +5,12 @@
 
 import { getHistory, getToView } from '../../src/api/HistoryApi';
 import { BiliApiError } from '../../src/types/errors';
+import { __setBuvid3ForTest } from '../../src/utils/httpClient';
 
 let fetchMock: jest.SpyInstance;
 
 beforeEach(() => {
+  __setBuvid3ForTest('TEST-BUVID3');
   fetchMock = jest.spyOn(globalThis, 'fetch');
 });
 
@@ -58,9 +60,11 @@ describe('getHistory', () => {
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain('/x/v2/history');
     expect(url).toContain('pn=1');
-    // cookie forwarding via httpRequest options
+    // cookie forwarding via httpRequest options; biliGet auto-appends buvid3
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.headers).toMatchObject({ Cookie: 'SESSDATA=sess-abc' });
+    const cookie = (init.headers as Record<string, string>)['Cookie'];
+    expect(cookie).toContain('SESSDATA=sess-abc');
+    expect(cookie).toContain('buvid3=TEST-BUVID3');
   });
 
   test('accepts { list: [...] } response shape (legacy/cursor wrapper)', async () => {
@@ -150,7 +154,9 @@ describe('getToView', () => {
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain('/x/v2/history/toview/web');
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.headers).toMatchObject({ Cookie: 'SESSDATA=s' });
+    const cookie = (init.headers as Record<string, string>)['Cookie'];
+    expect(cookie).toContain('SESSDATA=s');
+    expect(cookie).toContain('buvid3=TEST-BUVID3');
   });
 
   test('returns empty when data.list missing', async () => {

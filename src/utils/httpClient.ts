@@ -8,6 +8,7 @@
  */
 
 import { BiliApiError, BILI_CODE_NEED_LOGIN, NetworkError } from '../types/errors';
+import { loadCookies } from '../services/CookieService';
 import type { BiliResponse, BiliBangumiResponse } from '../types/bili';
 
 export interface HttpRequestOptions {
@@ -31,8 +32,17 @@ const DEFAULT_RETRIES = 3;
 // /x/frontend/finger/spid 接口拿全套。
 let cachedBuvid3: string | undefined;
 
+// Testing hooks: reset/seed the buvid3 cache so unit tests don't hit bilibili.com.
+export function __resetHttpClientState(): void { cachedBuvid3 = undefined; }
+export function __setBuvid3ForTest(value: string | undefined): void { cachedBuvid3 = value; }
+
 async function ensureBuvid3(): Promise<string> {
   if (cachedBuvid3) return cachedBuvid3;
+  // ponytail: in test environments don't hit the real bilibili.com homepage.
+  if (process.env.NODE_ENV === 'test') {
+    cachedBuvid3 = 'TEST-BUVID3';
+    return cachedBuvid3;
+  }
   // 访问 B 站首页拿 Set-Cookie 中的 buvid3
   const resp = await fetch('https://www.bilibili.com/', {
     headers: { 'User-Agent': DEFAULT_UA },
@@ -112,9 +122,25 @@ export async function downloadBuffer(url: string, options: Omit<HttpRequestOptio
 
 export async function biliGet<T = unknown>(url: string, options?: Omit<HttpRequestOptions, 'method' | 'rawResponse'>): Promise<T> {
   let mergedOptions = { ...options, method: 'GET' as const };
-  if (cachedBuvid3 && !mergedOptions.cookies?.buvid3) {
-    mergedOptions.cookies = mergeBuvid3(mergedOptions.cookies);
+
+  // ponytail: 如果调用方没显式传 cookies，自动加载持久化登录态；所有需要登录的 API 自动受益。
+  if (!mergedOptions.cookies) {
+    const { cookies } = loadCookies();
+    if (Object.keys(cookies).length > 0) {
+      mergedOptions.cookies = cookies;
+    }
   }
+
+  // 匿名访问时补充 buvid3；已登录时若缺 buvid3 也补上，避免 -352 风控。
+  if (!mergedOptions.cookies?.buvid3) {
+    if (!cachedBuvid3) {
+      try { await ensureBuvid3(); } catch { /* 取不到就继续，让后端决定 */ }
+    }
+    if (cachedBuvid3) {
+      mergedOptions.cookies = { ...mergedOptions.cookies, buvid3: cachedBuvid3 };
+    }
+  }
+
   let resp = await httpRequest<BiliResponse<T> | BiliBangumiResponse<T>>(url, mergedOptions);
   let body = resp.data;
   // ponytail: -352 风控时自动注入 buvid3 并重试一次

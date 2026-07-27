@@ -20,7 +20,7 @@ import { downloadMultiThread } from '../utils/downloader';
 import { mergeVideoAudio, findFfmpeg } from '../utils/ffmpeg';
 import { loadCookies, toCookieHeader } from './CookieService';
 import { info as logInfo, warn as logWarn, error as logError, progress as logProgress } from '../utils/logger';
-import type { VideoInfo, DashVideo, DashAudio } from '../types/bili';
+import type { VideoInfo, DashVideo, DashAudio, PlayUrlDurl } from '../types/bili';
 
 const ILLEGAL_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
 
@@ -67,23 +67,40 @@ function extForAudio(a?: DashAudio): string {
   return 'm4a';
 }
 
+function extForDurl(d?: PlayUrlDurl): string {
+  if (!d) return 'mp4';
+  const u = d.url.toLowerCase();
+  if (u.includes('.flv')) return 'flv';
+  if (u.includes('.mp4')) return 'mp4';
+  return 'mp4';
+}
+
 async function downloadStream(
-  url: string,
+  urls: string[],
   destPath: string,
   cookies: Record<string, string>,
   threads: number,
   qualityLabel: string,
 ): Promise<{ bytes: number; durationMs: number }> {
   const start = Date.now();
-  const result = await downloadMultiThread(url, destPath, {
-    cookies,
-    headers: { Referer: 'https://www.bilibili.com/' },
-    threads,
-    onProgress: (cur, total, speedBps) => {
-      logProgress(cur, total, { label: qualityLabel, speedBps });
-    },
-  });
-  return { bytes: result.totalBytes, durationMs: Date.now() - start };
+  let lastErr: Error | undefined;
+  for (const [idx, url] of urls.entries()) {
+    try {
+      const result = await downloadMultiThread(url, destPath, {
+        cookies,
+        headers: { Referer: 'https://www.bilibili.com/' },
+        threads,
+        onProgress: (cur, total, speedBps) => {
+          logProgress(cur, total, { label: qualityLabel, speedBps });
+        },
+      });
+      return { bytes: result.totalBytes, durationMs: Date.now() - start };
+    } catch (err) {
+      lastErr = err as Error;
+      logWarn('stream download attempt failed', { attempt: idx + 1, url: url.slice(0, 80), error: lastErr.message });
+    }
+  }
+  throw lastErr ?? new Error(`All ${urls.length} stream URLs failed for ${qualityLabel}`);
 }
 
 /** Download a single video page (video + audio streams, merge if ffmpeg available). */
@@ -124,45 +141,62 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
     audio: selected.audio ? { id: selected.audio.id } : null,
   });
 
-  const videoPath = selected.video
-    ? `${opts.outputDir}/${baseName}-${selected.video.id}.${videoExt}`
-    : undefined;
-  const audioPath = selected.audio
-    ? `${opts.outputDir}/${baseName}-${selected.audio.id}.${audioExt}`
-    : undefined;
-
-  if (videoPath) {
-    if (!opts.overwrite && existsSafe(videoPath)) {
-      logInfo('skip existing video file', { path: videoPath });
-    } else {
-      logInfo('downloading video', { url: selected.video!.baseUrl.slice(0, 80), quality: selected.video!.id });
-      await downloadStream(selected.video!.baseUrl, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video!.id}`);
-    }
-  }
-  if (audioPath) {
-    if (!opts.overwrite && existsSafe(audioPath)) {
-      logInfo('skip existing audio file', { path: audioPath });
-    } else {
-      logInfo('downloading audio', { url: selected.audio!.baseUrl.slice(0, 80), id: selected.audio!.id });
-      await downloadStream(selected.audio!.baseUrl, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio!.id}`);
-    }
-  }
-
+  let videoPath: string | undefined;
+  let audioPath: string | undefined;
   let mergedPath: string | undefined;
-  if (!opts.noMerge && videoPath && audioPath) {
-    const ffmpeg = findFfmpeg();
-    if (ffmpeg) {
-      mergedPath = `${opts.outputDir}/${baseName}.mp4`;
-      logInfo('merging video + audio', { output: mergedPath });
-      try {
-        await mergeVideoAudio(videoPath, audioPath, mergedPath);
-        logInfo('merge complete', { path: mergedPath });
-      } catch (err) {
-        logError('merge failed, keeping separate streams', { error: (err as Error).message });
-        mergedPath = undefined;
-      }
+
+  // Legacy FLV/MP4 single-file fallback (no separate audio, no ffmpeg merge needed).
+  if (selected.durl) {
+    mergedPath = `${opts.outputDir}/${baseName}.${extForDurl(selected.durl)}`;
+    if (!opts.overwrite && existsSafe(mergedPath)) {
+      logInfo('skip existing durl file', { path: mergedPath });
     } else {
-      logWarn('ffmpeg not found on PATH, keeping separate video + audio files');
+      const urls = [selected.durl.url, ...(selected.durl.backup_url ?? [])];
+      logInfo('downloading durl (single-file)', { url: urls[0].slice(0, 80), size: selected.durl.size, fallbacks: urls.length - 1 });
+      await downloadStream(urls, mergedPath, cookies, opts.threads ?? 8, `durl qn=${selected.quality}`);
+    }
+  } else {
+    videoPath = selected.video
+      ? `${opts.outputDir}/${baseName}-${selected.video.id}.${videoExt}`
+      : undefined;
+    audioPath = selected.audio
+      ? `${opts.outputDir}/${baseName}-${selected.audio.id}.${audioExt}`
+      : undefined;
+
+    if (videoPath) {
+      if (!opts.overwrite && existsSafe(videoPath)) {
+        logInfo('skip existing video file', { path: videoPath });
+      } else {
+        const videoUrls = [selected.video!.baseUrl, ...(selected.video!.baseBackupUrl ?? [])];
+        logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video!.id, fallbacks: videoUrls.length - 1 });
+        await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video!.id}`);
+      }
+    }
+    if (audioPath) {
+      if (!opts.overwrite && existsSafe(audioPath)) {
+        logInfo('skip existing audio file', { path: audioPath });
+      } else {
+        const audioUrls = [selected.audio!.baseUrl, ...(selected.audio!.baseBackupUrl ?? [])];
+        logInfo('downloading audio', { url: audioUrls[0].slice(0, 80), id: selected.audio!.id, fallbacks: audioUrls.length - 1 });
+        await downloadStream(audioUrls, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio!.id}`);
+      }
+    }
+
+    if (!opts.noMerge && videoPath && audioPath) {
+      const ffmpeg = findFfmpeg();
+      if (ffmpeg) {
+        mergedPath = `${opts.outputDir}/${baseName}.mp4`;
+        logInfo('merging video + audio', { output: mergedPath });
+        try {
+          await mergeVideoAudio(videoPath, audioPath, mergedPath);
+          logInfo('merge complete', { path: mergedPath });
+        } catch (err) {
+          logError('merge failed, keeping separate streams', { error: (err as Error).message });
+          mergedPath = undefined;
+        }
+      } else {
+        logWarn('ffmpeg not found on PATH, keeping separate video + audio files');
+      }
     }
   }
 

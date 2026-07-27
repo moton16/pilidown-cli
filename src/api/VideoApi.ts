@@ -39,6 +39,7 @@ export async function getPlayUrl(opts: {
   cid: number;
   qn?: number;
   fnval?: number;
+  platform?: string;
 }): Promise<PlayUrlResponse> {
   const params: Record<string, string | number> = {
     from_client: 'BROWSER',
@@ -48,6 +49,7 @@ export async function getPlayUrl(opts: {
     cid: opts.cid,
     qn: opts.qn ?? 127,
   };
+  if (opts.platform) params.platform = opts.platform;
   if (opts.bvid) params.bvid = opts.bvid;
   else if (opts.aid !== undefined) params.aid = opts.aid;
   else throw new Error('getPlayUrl requires bvid or aid');
