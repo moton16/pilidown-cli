@@ -11,13 +11,12 @@ import type { Command } from 'commander';
 import { mkdirSync } from 'node:fs';
 import { parseEntrance } from '../core/parseEntrance';
 import { downloadVideo, downloadAllPages, downloadCollection } from '../services/DownloadService';
-import { findFfmpeg } from '../utils/ffmpeg';
 import { setJsonMode, info as logInfo, error as logError } from '../utils/logger';
 
 export function registerDownloadCommand(program: Command): void {
   program
     .command('download <url-or-id>')
-    .description('Download a Bilibili video (multi-thread + ffmpeg merge)')
+    .description('Download a Bilibili video (multi-thread + pure JS merge)')
     .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
     .option('--audio-quality <id>', 'Preferred audio id (30216=64k, 30232=132k, 30280=192k, 30250=Dolby, 30251=Hi-Res)', (v: string) => parseInt(v, 10))
@@ -29,7 +28,9 @@ export function registerDownloadCommand(program: Command): void {
     .option('--output <dir>', 'Output directory', '.')
     .option('--filename <name>', 'Override base filename (no extension)')
     .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
-    .option('--no-merge', 'Skip ffmpeg merge; keep separate .m4v + .m4a')
+    .option('--no-merge', 'Skip merge; keep separate .m4v + .m4a')
+    .option('--audio-only', 'Download audio only (skip video stream), default output mp3')
+    .option('--format <fmt>', 'Audio format for transcoding: mp3, aac, flac, wav, m4a', 'mp3')
     .option('--overwrite', 'Overwrite existing files instead of skipping')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
@@ -48,6 +49,8 @@ export function registerDownloadCommand(program: Command): void {
           filename?: string;
           threads: number;
           merge: boolean;
+          audioOnly?: boolean;
+          format?: string;
           overwrite?: boolean;
           json?: boolean;
         },
@@ -59,9 +62,6 @@ export function registerDownloadCommand(program: Command): void {
             throw new Error(`download command supports video only, got "${parsed.type}"`);
           }
           mkdirSync(opts.output, { recursive: true });
-          if (!findFfmpeg()) {
-            logInfo('ffmpeg not found on PATH; will keep separate video/audio files if merging fails', {});
-          }
           const baseOpts = {
             bvid: parsed.bvid,
             aid: parsed.aid,
@@ -74,6 +74,8 @@ export function registerDownloadCommand(program: Command): void {
             filename: opts.filename,
             threads: opts.threads,
             noMerge: !opts.merge,
+            audioOnly: opts.audioOnly,
+            format: opts.format,
             overwrite: opts.overwrite,
           };
           if (opts.all) {

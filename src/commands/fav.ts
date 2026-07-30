@@ -7,17 +7,21 @@
  * Usage:
  *   pilidown fav <mid>                  列出用户的所有收藏夹
  *   pilidown fav <mid> --media <id>     列出某收藏夹内的视频
+ *   pilidown fav <mid> --media <id> --download  下载整个收藏夹的视频
  *   pilidown fav --user <mid>           等价于 pilidown fav <mid>
- *   pilidown fav --user <mid> --media <id> --page 2 --json
+ *   pilidown fav --user <mid> --media <id> --download --audio-only --format mp3
  *
  * 行为：
  *   - 不传 --media：调用 getFavFolders(mid) 列出收藏夹
- *   - 传 --media：调用 getFavResources(mediaId, page) 分页列出该收藏夹视频
+ *   - 传 --media 不传 --download：调用 getFavResources(mediaId, page) 分页列出视频
+ *   - 传 --media + --download：自动翻页获取全部视频，逐个下载
  */
 
 import type { Command } from 'commander';
-import { getFavFolders, getFavResources } from '../api/FavoritesApi';
-import { setJsonMode, error as logError } from '../utils/logger';
+import { mkdirSync } from 'node:fs';
+import { getFavFolders, getFavResources, getAllFavResources } from '../api/FavoritesApi';
+import { downloadVideo } from '../services/DownloadService';
+import { setJsonMode, info as logInfo, warn as logWarn, error as logError } from '../utils/logger';
 import type { FavoritesFolder, FavoritesResource } from '../types/bili';
 
 export function registerFavCommand(program: Command): void {
@@ -26,7 +30,19 @@ export function registerFavCommand(program: Command): void {
     .description('List a user\'s favorite folders, or videos inside a specific folder')
     .option('--user <mid>', 'Target user UID (alternative to positional <mid>)', parseMid)
     .option('--media <media_id>', 'Folder media_id; when set, list videos inside this folder', parseMid)
-    .option('--page <n>', 'Page number (1-based) for --media listing', (v: string) => parseInt(v, 10), 1)
+    .option('--page <n>', 'Page number (1-based) for --media listing (no --download)', (v: string) => parseInt(v, 10), 1)
+    .option('--download', 'Download all videos in the folder (requires --media)')
+    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
+    .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
+    .option('--audio-quality <id>', 'Preferred audio id (30216=64k, 30232=132k, 30280=192k, 30250=Dolby, 30251=Hi-Res)', (v: string) => parseInt(v, 10))
+    .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
+    .option('--dolby', 'Prefer Dolby Atmos audio if available')
+    .option('--output <dir>', 'Output directory', '.')
+    .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
+    .option('--no-merge', 'Skip merge; keep separate .m4v + .m4a')
+    .option('--audio-only', 'Download audio only (skip video stream), default output mp3')
+    .option('--format <fmt>', 'Audio format for transcoding: mp3, aac, flac, wav, m4a', 'mp3')
+    .option('--overwrite', 'Overwrite existing files instead of skipping')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
       async (
@@ -35,6 +51,18 @@ export function registerFavCommand(program: Command): void {
           user?: number;
           media?: number;
           page: number;
+          download?: boolean;
+          quality: string;
+          codec?: number;
+          audioQuality?: number;
+          hires: boolean;
+          dolby?: boolean;
+          output: string;
+          threads: number;
+          merge: boolean;
+          audioOnly?: boolean;
+          format?: string;
+          overwrite?: boolean;
           json?: boolean;
         },
       ) => {
@@ -42,19 +70,23 @@ export function registerFavCommand(program: Command): void {
         try {
           const mid = resolveMid(midArg, opts.user);
           if (opts.media !== undefined) {
-            const page = Math.max(1, opts.page);
-            const { resources, hasMore } = await getFavResources(opts.media, page);
-            const result = {
-              media_id: opts.media,
-              page,
-              has_more: hasMore,
-              count: resources.length,
-              videos: resources.map(toVideoSummary),
-            };
-            if (opts.json) {
-              process.stdout.write(JSON.stringify({ event: 'fav.videos', data: result }) + '\n');
+            if (opts.download) {
+              await downloadFavFolder(opts.media, opts);
             } else {
-              printResources(result.media_id, result.page, result.has_more, resources);
+              const page = Math.max(1, opts.page);
+              const { resources, hasMore } = await getFavResources(opts.media, page);
+              const result = {
+                media_id: opts.media,
+                page,
+                has_more: hasMore,
+                count: resources.length,
+                videos: resources.map(toVideoSummary),
+              };
+              if (opts.json) {
+                process.stdout.write(JSON.stringify({ event: 'fav.videos', data: result }) + '\n');
+              } else {
+                printResources(result.media_id, result.page, result.has_more, resources);
+              }
             }
           } else {
             const { folders, total } = await getFavFolders(mid);
@@ -75,6 +107,91 @@ export function registerFavCommand(program: Command): void {
         }
       },
     );
+}
+
+async function downloadFavFolder(mediaId: number, opts: {
+  output: string;
+  quality: string;
+  codec?: number;
+  audioQuality?: number;
+  hires: boolean;
+  dolby?: boolean;
+  threads: number;
+  merge: boolean;
+  audioOnly?: boolean;
+  format?: string;
+  overwrite?: boolean;
+  json?: boolean;
+}): Promise<void> {
+  mkdirSync(opts.output, { recursive: true });
+
+  logInfo('fetching all videos from fav folder', { media_id: mediaId });
+  const resources = await getAllFavResources(mediaId);
+  logInfo('fetched videos', { count: resources.length });
+
+  if (!resources.length) {
+    logWarn('no videos found in this fav folder', { media_id: mediaId });
+    return;
+  }
+
+  let succeeded = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (let i = 0; i < resources.length; i++) {
+    const r = resources[i];
+    if (!r.bvid) {
+      logWarn('skipping resource without bvid', { index: i + 1 });
+      skipped++;
+      continue;
+    }
+    logInfo('downloading fav video', {
+      index: i + 1,
+      total: resources.length,
+      bvid: r.bvid,
+      title: r.title,
+    });
+    try {
+      const result = await downloadVideo({
+        bvid: r.bvid,
+        page: 1,
+        preferQn: parseInt(opts.quality, 10),
+        preferCodec: opts.codec,
+        preferAudioId: opts.audioQuality,
+        preferHiRes: opts.hires,
+        preferDolby: opts.dolby,
+        outputDir: opts.output,
+        threads: opts.threads,
+        noMerge: !opts.merge,
+        audioOnly: opts.audioOnly,
+        format: opts.format,
+        overwrite: opts.overwrite,
+      });
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({
+          event: 'fav.download',
+          data: {
+            index: i + 1,
+            total: resources.length,
+            bvid: r.bvid,
+            title: r.title,
+            path: result.mergedPath ?? result.videoPath ?? result.audioPath,
+          },
+        }) + '\n');
+      } else {
+        console.log(`  [${i + 1}/${resources.length}] ${r.bvid} ${r.title} -> ${result.mergedPath ?? result.videoPath ?? '(failed)'}`);
+      }
+      succeeded++;
+    } catch (err) {
+      logError('fav video download failed', { index: i + 1, bvid: r.bvid, error: (err as Error).message });
+      failed++;
+    }
+  }
+
+  logInfo('fav download complete', { total: resources.length, succeeded, failed, skipped });
+  if (!opts.json) {
+    console.log(`\n收藏夹下载完成：共 ${resources.length} 个视频，成功 ${succeeded}，失败 ${failed}，跳过 ${skipped}`);
+  }
 }
 
 function parseMid(v: string): number {
@@ -136,7 +253,9 @@ function printFolders(mid: number, folders: FavoritesFolder[], total: number): v
     console.log(`  [${f.id}] ${f.title}  (${f.media_count} 个视频)  fid=${f.fid}`);
   }
   console.log('');
-  console.log('提示：使用 `pilidown fav ' + mid + ' --media <id>` 查看某收藏夹内的视频。');
+  console.log('提示：');
+  console.log(`  查看收藏夹视频：pilidown fav ${mid} --media <id>`);
+  console.log(`  下载整个收藏夹：pilidown fav ${mid} --media <id> --download --output ./downloads`);
 }
 
 function printResources(mediaId: number, page: number, hasMore: boolean, resources: FavoritesResource[]): void {
@@ -149,6 +268,10 @@ function printResources(mediaId: number, page: number, hasMore: boolean, resourc
     console.log(`  ${r.bvid}  ${r.title}`);
     console.log(`    UP: ${r.upper.name} (mid=${r.upper.mid})  时长: ${formatDuration(r.duration)}`);
     console.log(`    播放 ${r.cnt_info.play}  收藏 ${r.cnt_info.collect}  弹幕 ${r.cnt_info.danmaku}`);
+  }
+  if (hasMore) {
+    console.log('');
+    console.log(`提示：还有更多视频，使用 --page ${page + 1} 查看下一页，或加 --download 下载全部。`);
   }
 }
 

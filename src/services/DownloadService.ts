@@ -11,13 +11,13 @@
  *   - Filename: `{title}-P{page}-{qn}.{ext}` (no builder pattern, no config).
  *   - Sanitize Windows + Unix illegal chars.
  *   - Concurrency control: simple p-limit-style promise pool (no extra dep).
- *   - No FFmpeg: fallback to separate .m4v + .m4a files.
+ *   - No FFmpeg: uses pure JS/WASM merge (mp4box + @invintusmedia/tomp4).
  */
 
 import { getVideoInfo, getPlayUrl } from '../api/VideoApi';
 import { selectStreams } from './StreamService';
 import { downloadMultiThread } from '../utils/downloader';
-import { mergeVideoAudio, findFfmpeg } from '../utils/ffmpeg';
+import { mergeDashStreams, transcodeToMp3, extractAudioFromMp4 } from '../utils/media';
 import { loadCookies, toCookieHeader } from './CookieService';
 import { info as logInfo, warn as logWarn, error as logError, progress as logProgress } from '../utils/logger';
 import type { VideoInfo, DashVideo, DashAudio, PlayUrlDurl } from '../types/bili';
@@ -38,6 +38,8 @@ export interface DownloadVideoOptions {
   threads?: number;
   noMerge?: boolean; // skip ffmpeg merge, save separate .m4v/.m4a
   overwrite?: boolean;
+  audioOnly?: boolean; // only download audio, skip video stream
+  format?: string; // transcode audio to format: mp3/aac/flac/wav
 }
 
 export interface DownloadResult {
@@ -147,31 +149,70 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
 
   // Legacy FLV/MP4 single-file fallback (no separate audio, no ffmpeg merge needed).
   if (selected.durl) {
-    mergedPath = `${opts.outputDir}/${baseName}.${extForDurl(selected.durl)}`;
-    if (!opts.overwrite && existsSafe(mergedPath)) {
-      logInfo('skip existing durl file', { path: mergedPath });
+    const durlExt = extForDurl(selected.durl);
+    const durlPath = `${opts.outputDir}/${baseName}.${durlExt}`;
+    if (!opts.overwrite && existsSafe(durlPath)) {
+      logInfo('skip existing durl file', { path: durlPath });
+      mergedPath = durlPath;
     } else {
       const urls = [selected.durl.url, ...(selected.durl.backup_url ?? [])];
       logInfo('downloading durl (single-file)', { url: urls[0].slice(0, 80), size: selected.durl.size, fallbacks: urls.length - 1 });
-      await downloadStream(urls, mergedPath, cookies, opts.threads ?? 8, `durl qn=${selected.quality}`);
+      await downloadStream(urls, durlPath, cookies, opts.threads ?? 8, `durl qn=${selected.quality}`);
+      mergedPath = durlPath;
+    }
+
+    // audio-only: extract audio from durl, optionally transcode
+    if (opts.audioOnly) {
+      const fmt = opts.format ?? 'mp3';
+      const audioOut = `${opts.outputDir}/${baseName}.${fmt}`;
+      const durlLower = durlPath.toLowerCase();
+      if (durlLower.endsWith('.mp4') || durlLower.endsWith('.m4v')) {
+        // MP4/fMP4 container: extract audio with pure JS
+        logInfo('extracting audio from durl (pure JS)', { format: fmt, output: audioOut });
+        try {
+          if (fmt === 'mp3') {
+            // Extract to m4a first, then transcode to mp3
+            const m4aPath = `${opts.outputDir}/${baseName}-temp.m4a`;
+            await extractAudioFromMp4(durlPath, m4aPath);
+            await transcodeToMp3(m4aPath, audioOut, 192);
+          } else {
+            // For m4a/aac: just extract audio track
+            await extractAudioFromMp4(durlPath, audioOut);
+          }
+          if (durlPath !== audioOut) try { require('node:fs').rmSync(durlPath, { force: true }); } catch { /* ignore */ }
+          mergedPath = audioOut;
+          logInfo('audio extraction complete', { path: audioOut });
+        } catch (err) {
+          logError('audio extraction failed, keeping original durl', { error: (err as Error).message });
+        }
+      } else {
+        // FLV or other: not supported in pure JS, keep original
+        logWarn('FLV audio extraction not supported (no ffmpeg), keeping original file', { path: durlPath });
+        mergedPath = durlPath;
+      }
     }
   } else {
-    videoPath = selected.video
-      ? `${opts.outputDir}/${baseName}-${selected.video.id}.${videoExt}`
-      : undefined;
+    // audio-only: skip video download entirely
+    if (opts.audioOnly) {
+      videoPath = undefined;
+    } else {
+      videoPath = selected.video
+        ? `${opts.outputDir}/${baseName}-${selected.video.id}.${videoExt}`
+        : undefined;
+      if (videoPath) {
+        if (!opts.overwrite && existsSafe(videoPath)) {
+          logInfo('skip existing video file', { path: videoPath });
+        } else {
+          const videoUrls = [selected.video!.baseUrl, ...(selected.video!.baseBackupUrl ?? [])];
+          logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video!.id, fallbacks: videoUrls.length - 1 });
+          await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video!.id}`);
+        }
+      }
+    }
+
     audioPath = selected.audio
       ? `${opts.outputDir}/${baseName}-${selected.audio.id}.${audioExt}`
       : undefined;
-
-    if (videoPath) {
-      if (!opts.overwrite && existsSafe(videoPath)) {
-        logInfo('skip existing video file', { path: videoPath });
-      } else {
-        const videoUrls = [selected.video!.baseUrl, ...(selected.video!.baseBackupUrl ?? [])];
-        logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video!.id, fallbacks: videoUrls.length - 1 });
-        await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video!.id}`);
-      }
-    }
     if (audioPath) {
       if (!opts.overwrite && existsSafe(audioPath)) {
         logInfo('skip existing audio file', { path: audioPath });
@@ -182,20 +223,38 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
       }
     }
 
-    if (!opts.noMerge && videoPath && audioPath) {
-      const ffmpeg = findFfmpeg();
-      if (ffmpeg) {
-        mergedPath = `${opts.outputDir}/${baseName}.mp4`;
-        logInfo('merging video + audio', { output: mergedPath });
+    if (opts.audioOnly && audioPath) {
+      // transcode audio to target format (default mp3)
+      const fmt = opts.format ?? 'mp3';
+      const audioOut = `${opts.outputDir}/${baseName}.${fmt}`;
+      if (fmt === 'mp3') {
+        logInfo('transcoding audio to mp3 (pure JS/WASM)', { from: audioExt, to: fmt, output: audioOut });
         try {
-          await mergeVideoAudio(videoPath, audioPath, mergedPath);
-          logInfo('merge complete', { path: mergedPath });
+          await transcodeToMp3(audioPath, audioOut, 192);
+          mergedPath = audioOut;
+          audioPath = audioOut;
+          logInfo('transcode complete', { path: audioOut });
         } catch (err) {
-          logError('merge failed, keeping separate streams', { error: (err as Error).message });
-          mergedPath = undefined;
+          logError('transcode failed, keeping original audio', { error: (err as Error).message });
+          mergedPath = audioPath;
         }
+      } else if (fmt === 'm4a') {
+        // No transcoding needed — keep original m4a
+        mergedPath = audioPath;
       } else {
-        logWarn('ffmpeg not found on PATH, keeping separate video + audio files');
+        // aac/flac/wav not supported in pure JS yet
+        logWarn('format not supported in pure JS mode, keeping original .m4a', { format: fmt });
+        mergedPath = audioPath;
+      }
+    } else if (!opts.noMerge && videoPath && audioPath) {
+      mergedPath = `${opts.outputDir}/${baseName}.mp4`;
+      logInfo('merging video + audio (pure JS)', { output: mergedPath });
+      try {
+        await mergeDashStreams(videoPath, audioPath, mergedPath);
+        logInfo('merge complete', { path: mergedPath });
+      } catch (err) {
+        logError('merge failed, keeping separate streams', { error: (err as Error).message });
+        mergedPath = undefined;
       }
     }
   }
