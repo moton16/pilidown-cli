@@ -93,8 +93,11 @@ export async function downloadPart(
   };
   if (opts.cookies) headers['Cookie'] = Object.entries(opts.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
   headers['Range'] = `bytes=${part.from}-${part.to}`;
+  // ponytail: timeout proportional to part size — at least 60s, plus 30s per MB
+  const partSize = part.to - part.from + 1;
+  const timeout = opts.timeout ?? Math.max(60000, 30000 * Math.ceil(partSize / (1024 * 1024)));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeout ?? 60000);
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
     if (!resp.ok && resp.status !== 206) {

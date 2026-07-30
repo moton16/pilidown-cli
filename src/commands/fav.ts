@@ -41,7 +41,7 @@ export function registerFavCommand(program: Command): void {
     .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
     .option('--no-merge', 'Skip merge; keep separate .m4v + .m4a')
     .option('--audio-only', 'Download audio only (skip video stream), default output mp3')
-    .option('--format <fmt>', 'Audio format for transcoding: mp3, aac, flac, wav, m4a', 'mp3')
+    .option('--format <fmt>', 'Audio format: mp3 (transcode) or m4a (original)', 'mp3')
     .option('--overwrite', 'Overwrite existing files instead of skipping')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
