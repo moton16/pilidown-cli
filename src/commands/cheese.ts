@@ -34,7 +34,7 @@ export function registerCheeseCommand(program: Command): void {
     .description('Fetch cheese (课程) season info and optional stream URL')
     .option('--season <id>', 'Override season_id (ssXXX number)')
     .option('--ep <id>', 'Fetch stream URL for this episode id (epXXX number)', '')
-    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
+    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '80')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(async (arg: string, opts: CheeseCommandOptions) => {
       if (opts.json) setJsonMode(true);

@@ -17,6 +17,7 @@ import { registerCheeseCommand } from './commands/cheese';
 import { registerFavCommand } from './commands/fav';
 import { registerHistoryCommand } from './commands/history';
 import { registerSpaceCommand } from './commands/space';
+import { registerStatusCommand } from './commands/status';
 
 const program = new Command();
 
@@ -36,5 +37,6 @@ registerCheeseCommand(program);
 registerFavCommand(program);
 registerHistoryCommand(program);
 registerSpaceCommand(program);
+registerStatusCommand(program);
 
 program.parse(process.argv);

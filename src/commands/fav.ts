@@ -22,6 +22,7 @@ import { mkdirSync } from 'node:fs';
 import { getFavFolders, getFavResources, getAllFavResources } from '../api/FavoritesApi';
 import { downloadVideo } from '../services/DownloadService';
 import { setJsonMode, info as logInfo, warn as logWarn, error as logError } from '../utils/logger';
+import { loadCookies } from '../services/CookieService';
 import type { FavoritesFolder, FavoritesResource } from '../types/bili';
 
 export function registerFavCommand(program: Command): void {
@@ -32,9 +33,9 @@ export function registerFavCommand(program: Command): void {
     .option('--media <media_id>', 'Folder media_id; when set, list videos inside this folder', parseMid)
     .option('--page <n>', 'Page number (1-based) for --media listing (no --download)', (v: string) => parseInt(v, 10), 1)
     .option('--download', 'Download all videos in the folder (requires --media)')
-    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
+    .option('--quality <qn>', 'Preferred video quality; defaults to 80 when logged in and 16 anonymously')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
-    .option('--audio-quality <id>', 'Preferred audio id (30216=64k, 30232=132k, 30280=192k, 30250=Dolby, 30251=Hi-Res)', (v: string) => parseInt(v, 10))
+    .option('--audio-quality <id>', 'Preferred audio id; defaults to 30280 when logged in and 30216 anonymously', (v: string) => parseInt(v, 10))
     .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--output <dir>', 'Output directory', '.')
@@ -52,7 +53,7 @@ export function registerFavCommand(program: Command): void {
           media?: number;
           page: number;
           download?: boolean;
-          quality: string;
+          quality?: string;
           codec?: number;
           audioQuality?: number;
           hires: boolean;
@@ -111,7 +112,7 @@ export function registerFavCommand(program: Command): void {
 
 async function downloadFavFolder(mediaId: number, opts: {
   output: string;
-  quality: string;
+  quality?: string;
   codec?: number;
   audioQuality?: number;
   hires: boolean;
@@ -155,9 +156,9 @@ async function downloadFavFolder(mediaId: number, opts: {
       const result = await downloadVideo({
         bvid: r.bvid,
         page: 1,
-        preferQn: parseInt(opts.quality, 10),
+        preferQn: opts.quality ? parseInt(opts.quality, 10) : loadCookies().cookies.SESSDATA ? 80 : 16,
         preferCodec: opts.codec,
-        preferAudioId: opts.audioQuality,
+        preferAudioId: opts.audioQuality ?? (loadCookies().cookies.SESSDATA ? 30280 : 30216),
         preferHiRes: opts.hires,
         preferDolby: opts.dolby,
         outputDir: opts.output,

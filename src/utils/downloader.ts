@@ -38,7 +38,7 @@ export interface Partition {
 
 /** Split [0, size-1] into N roughly-equal byte ranges. */
 export function createPartitions(size: number, numParts: number): Partition[] {
-  const n = Math.max(1, numParts);
+  const n = Math.min(size > 0 ? size : 1, Math.max(1, numParts));
   if (size <= 0) return [];
   const partSize = Math.floor(size / n);
   const parts: Partition[] = [];
@@ -66,7 +66,7 @@ export async function probeRangeSupport(
   const timer = setTimeout(() => controller.abort(), opts.timeout ?? 30000);
   try {
     const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
-    const acceptRanges = (resp.headers.get('accept-ranges') ?? '').toLowerCase() === 'bytes';
+    const acceptRanges = resp.status === 206 && (resp.headers.get('accept-ranges') ?? '').toLowerCase() === 'bytes';
     let size = Number(resp.headers.get('content-range')?.split('/')?.[1]);
     if (!Number.isFinite(size) || size < 0) {
       size = Number(resp.headers.get('content-length')) ?? 0;
@@ -100,7 +100,7 @@ export async function downloadPart(
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const resp = await fetch(url, { method: 'GET', headers, signal: controller.signal });
-    if (!resp.ok && resp.status !== 206) {
+    if (resp.status !== 206) {
       throw new Error(`HTTP ${resp.status} on range ${part.from}-${part.to} for ${url}`);
     }
     if (!resp.body) throw new Error('No response body');
@@ -183,23 +183,25 @@ export async function downloadMultiThread(
   let lastSpeedMark = startTime;
   let lastSpeedBytes = 0;
 
-  await Promise.all(
-    parts.map(async (part, idx) => {
-      const result = await downloadPart(url, part, partPaths[idx], opts);
-      received += result.bytes;
-      if (opts.onProgress) {
-        const now = Date.now();
-        const dt = (now - lastSpeedMark) / 1000;
-        const instantSpeed = dt > 0 ? (received - lastSpeedBytes) / dt : 0;
-        opts.onProgress(received, size, instantSpeed);
-        lastSpeedMark = now;
-        lastSpeedBytes = received;
-      }
-    }),
-  );
-
-  mergeParts(partPaths, destPath);
-  try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    await Promise.all(
+      parts.map(async (part, idx) => {
+        const result = await downloadPart(url, part, partPaths[idx], opts);
+        received += result.bytes;
+        if (opts.onProgress) {
+          const now = Date.now();
+          const dt = (now - lastSpeedMark) / 1000;
+          const instantSpeed = dt > 0 ? (received - lastSpeedBytes) / dt : 0;
+          opts.onProgress(received, size, instantSpeed);
+          lastSpeedMark = now;
+          lastSpeedBytes = received;
+        }
+      }),
+    );
+    mergeParts(partPaths, destPath);
+  } finally {
+    try { rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 
   const durationMs = Date.now() - startTime;
   const averageSpeedBps = durationMs > 0 ? (size / (durationMs / 1000)) : 0;

@@ -52,11 +52,11 @@ describe('createPartitions', () => {
     expect(parts[0]).toEqual({ index: 0, from: 0, to: 99 });
   });
 
-  test('more parts than bytes — produces tiny parts but covers whole range', () => {
+  test('more parts than bytes — caps parts at byte count', () => {
     const parts = createPartitions(3, 5);
-    expect(parts).toHaveLength(5);
+    expect(parts).toHaveLength(3);
     expect(parts[0].from).toBe(0);
-    expect(parts[4].to).toBe(2);
+    expect(parts[2].to).toBe(2);
   });
 });
 

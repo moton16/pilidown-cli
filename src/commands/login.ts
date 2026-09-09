@@ -70,7 +70,7 @@ export function registerLoginCommand(program: Command): void {
             });
             if (isJsonMode()) {
               info('login_success', {
-                refresh_token: status.refresh_token,
+                has_refresh_token: Boolean(status.refresh_token),
                 saved_keys: Object.keys(merged),
               });
             } else {

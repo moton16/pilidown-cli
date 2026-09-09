@@ -11,15 +11,16 @@ import type { Command } from 'commander';
 import { mkdirSync } from 'node:fs';
 import { parseEntrance } from '../core/parseEntrance';
 import { downloadVideo, downloadAllPages, downloadCollection } from '../services/DownloadService';
+import { loadCookies } from '../services/CookieService';
 import { setJsonMode, info as logInfo, error as logError } from '../utils/logger';
 
 export function registerDownloadCommand(program: Command): void {
   program
     .command('download <url-or-id>')
     .description('Download a Bilibili video (multi-thread + pure JS merge)')
-    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
+    .option('--quality <qn>', 'Preferred video quality; default is 80 when logged in, 16 anonymously')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
-    .option('--audio-quality <id>', 'Preferred audio id (30216=64k, 30232=132k, 30280=192k, 30250=Dolby, 30251=Hi-Res)', (v: string) => parseInt(v, 10))
+    .option('--audio-quality <id>', 'Preferred audio id; default is 30280 when logged in, 30216 anonymously', (v: string) => parseInt(v, 10))
     .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--page <n>', 'Specific page number (1-based). Use --all to download all pages.', (v: string) => parseInt(v, 10), 1)
@@ -37,7 +38,7 @@ export function registerDownloadCommand(program: Command): void {
       async (
         arg: string,
         opts: {
-          quality: string;
+          quality?: string;
           codec?: number;
           audioQuality?: number;
           hires: boolean;
@@ -62,12 +63,13 @@ export function registerDownloadCommand(program: Command): void {
             throw new Error(`download command supports video only, got "${parsed.type}"`);
           }
           mkdirSync(opts.output, { recursive: true });
+          const loggedIn = Boolean(loadCookies().cookies.SESSDATA);
           const baseOpts = {
             bvid: parsed.bvid,
             aid: parsed.aid,
-            preferQn: parseInt(opts.quality, 10),
+            preferQn: opts.quality ? parseInt(opts.quality, 10) : loggedIn ? 80 : 16,
             preferCodec: opts.codec,
-            preferAudioId: opts.audioQuality,
+            preferAudioId: opts.audioQuality ?? (loggedIn ? 30280 : 30216),
             preferHiRes: opts.hires,
             preferDolby: opts.dolby,
             outputDir: opts.output,

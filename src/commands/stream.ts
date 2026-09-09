@@ -15,12 +15,13 @@ export function registerStreamCommand(program: Command): void {
   program
     .command('stream <url-or-id>')
     .description('Fetch and select stream URLs for a Bilibili video')
-    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '127')
+    .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '80')
     .option('--codec <id>', 'Preferred video codec id (7=AVC, 12=HEVC, 13=AV1)', parseInt)
     .option('--page <n>', 'Page number (1-based)', (v: string) => parseInt(v, 10), 1)
     .option('--no-hires', 'Disable Hi-Res FLAC audio preference')
     .option('--dolby', 'Prefer Dolby Atmos audio if available')
     .option('--json', 'Output as JSON Lines (for agent use)')
+    .option('--show-url', 'Include temporary stream URLs in output')
     .action(
       async (
         arg: string,
@@ -31,6 +32,7 @@ export function registerStreamCommand(program: Command): void {
           hires: boolean;
           dolby?: boolean;
           json?: boolean;
+          showUrl?: boolean;
         },
       ) => {
         if (opts.json) setJsonMode(true);
@@ -72,8 +74,7 @@ export function registerStreamCommand(program: Command): void {
                   bandwidth: selected.video.bandwidth,
                   mimeType: selected.video.mimeType,
                   codecs: selected.video.codecs,
-                  baseUrl: selected.video.baseUrl,
-                  backupUrls: selected.video.baseBackupUrl,
+                  ...(opts.showUrl ? { baseUrl: selected.video.baseUrl, backupUrls: selected.video.baseBackupUrl } : {}),
                 }
               : null,
             audio: selected.audio
@@ -82,16 +83,14 @@ export function registerStreamCommand(program: Command): void {
                   bandwidth: selected.audio.bandwidth,
                   mimeType: selected.audio.mimeType,
                   codecs: selected.audio.codecs,
-                  baseUrl: selected.audio.baseUrl,
-                  backupUrls: selected.audio.baseBackupUrl,
+                  ...(opts.showUrl ? { baseUrl: selected.audio.baseUrl, backupUrls: selected.audio.baseBackupUrl } : {}),
                 }
               : null,
             durl: selected.durl
               ? {
                   size: selected.durl.size,
                   length: selected.durl.length,
-                  baseUrl: selected.durl.url,
-                  backupUrls: selected.durl.backup_url,
+                  ...(opts.showUrl ? { baseUrl: selected.durl.url, backupUrls: selected.durl.backup_url } : {}),
                 }
               : null,
             allVideos: (playUrl.dash?.video ?? []).map(v => ({
@@ -131,9 +130,9 @@ function printHuman(r: {
   bvid: string;
   aid: number;
   page: { index: number; part: string; cid: number; duration: number };
-  video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl: string } | null;
-  audio: { id: number; bandwidth: number; codecs: string; baseUrl: string } | null;
-  durl: { size: number; length: number; baseUrl: string } | null;
+  video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl?: string } | null;
+  audio: { id: number; bandwidth: number; codecs: string; baseUrl?: string } | null;
+  durl: { size: number; length: number; baseUrl?: string } | null;
   allVideos: { quality: number; codec: number; width: number; height: number; bandwidth: number; codecs: string }[];
   allAudios: { id: number; bandwidth: number; codecs: string }[];
   acceptQuality: number[];
@@ -154,13 +153,13 @@ function printHuman(r: {
     const sel = r.audio && r.audio.id === a.id ? ' ← 已选' : '';
     console.log(`  id=${a.id}  codec=${a.codecs}  bw=${a.bandwidth}${sel}`);
   }
-  if (r.video) {
+  if (r.video?.baseUrl) {
     console.log(`\n选中视频 URL: ${r.video.baseUrl}`);
   }
-  if (r.audio) {
+  if (r.audio?.baseUrl) {
     console.log(`选中音频 URL: ${r.audio.baseUrl}`);
   }
-  if (r.durl) {
+  if (r.durl?.baseUrl) {
     console.log(`\n[单文件/兼容流] 大小=${(r.durl.size / 1024 / 1024).toFixed(2)} MB 时长=${r.durl.length}ms`);
     console.log(`选中 URL: ${r.durl.baseUrl}`);
   }
