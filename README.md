@@ -74,7 +74,7 @@ bin/pilidown status --json
 
 本项目可直接作为 AI Agent 的扩展技能（Skill）使用：
 
-1. 将仓库中的 `skills/pilidown`（或 `SKILL.md` 与包含独立打包产物的 `bin/` 目录）放置到对应 Agent 的 Skills 目录下（例如 `~/.claude/skills/pilidown`、`~/.gemini/config/skills/pilidown`、`.trae/skills/pilidown` 或项目中对应的工作区 skill 路径）。
+1. 将仓库中的 `skills/pilidown`（或 `SKILL.md` 与包含独立打包产物的 `bin/` 目录）放置到对应 Agent 的 Skills 目录下（例如 `~/.claude/skills/pilidown`、`~/.gemini/config/skills/pilidown`、`.cursor/skills/pilidown` 或项目中对应的工作区 skill 路径）。
 2. 在对话中即可直接通过自然语言让 Agent 下载视频、抓取字幕、获取弹幕或查询合集。
 
 详细的 Agent 调度规范与决策树见 [skills/pilidown/SKILL.md](skills/pilidown/SKILL.md)。

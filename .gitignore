@@ -16,6 +16,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.trae/
 
 # User data (should never be committed)
 cookies.json
