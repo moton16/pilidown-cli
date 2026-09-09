@@ -1,0 +1,25 @@
+#!/bin/sh
+# pilidown Unix wrapper — probes Node.js before launching the bundled CLI.
+
+# 1. Probe Node.js from PATH (covers official install, nvm, volta, fnm, nvs)
+if command -v node >/dev/null 2>&1; then
+    exec node "$(dirname "$0")/cli.cjs" "$@"
+fi
+
+# 2. Probe common install locations (fallback)
+for candidate in \
+    "$HOME/.nvm/current/bin/node" \
+    "$HOME/.volta/bin/node" \
+    "$HOME/.fnm/current/bin/node" \
+    "/usr/local/bin/node" \
+    "/opt/homebrew/bin/node" \
+    "/usr/bin/node"; do
+    if [ -x "$candidate" ]; then
+        exec "$candidate" "$(dirname "$0")/cli.cjs" "$@"
+    fi
+done
+
+echo "[pilidown] Node.js not found." >&2
+echo "[pilidown] Please install Node.js 18+ from https://nodejs.org/" >&2
+echo "[pilidown] After installing, restart your terminal and try again." >&2
+exit 1

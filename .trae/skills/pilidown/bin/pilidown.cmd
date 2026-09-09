@@ -31,5 +31,5 @@ if exist "%LOCALAPPDATA%\nvs\default\node.exe" (
 
 echo [pilidown] Node.js not found.
 echo [pilidown] Please install Node.js 18+ from https://nodejs.org/
-echo [pilidown] After installing, restart your terminal (or TRAE IDE) and try again.
+echo [pilidown] After installing, restart your terminal or IDE and try again.
 exit /b 1
