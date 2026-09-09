@@ -261,4 +261,8 @@ src/**/*.ts  ──esbuild──▶  bin/cli.cjs  ──复制──▶  skills/
 2. `npm test` 全绿
 3. 涉及 `src/` 改动 → `npm run build`；涉及对外行为 → 同步 `skills/pilidown/bin/cli.cjs`
 4. 涉及 CLI 参数或输出格式 → 同步 `skills/pilidown/SKILL.md`
-5. 在 `docs/changelog_developer.md` 追加一条，标明改了哪些文件、影响面、是否需要重新构建
+5. 在 `docs/changelog_developer.md` 追加一条，按该文件的格式标明 commit、时间、agent（及模型，若已知）、改动文件、性质、是否需重新构建
+
+---
+
+本文件由 WorkBuddy 于 2026-09-09 初始化（commit d1035e8）。内容随代码变动会过时，发现与代码不符以代码为准并顺手更正。
