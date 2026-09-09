@@ -5,7 +5,7 @@ description: "Bilibili downloader CLI (pilidown). Invoke when user wants to down
 
 # pilidown - Bilibili Downloader Skill
 
-A CLI tool for downloading Bilibili videos, ported from DownKyi.
+A lightweight CLI tool and universal Agent Skill for downloading Bilibili videos.
 
 ## When to Invoke
 

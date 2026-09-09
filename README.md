@@ -89,9 +89,9 @@ bin/pilidown status --json
 
 ---
 
-## Acknowledgments / 致敬与鸣谢
+## Acknowledgments / 鸣谢
 
-This project is inspired by [DownKyi](https://github.com/leiurayer/downkyi) by leiurayer. Core algorithms (WBI signature, BvId conversion, danmaku parsing, ASS conversion, multi-thread downloader) are ported from DownKyi.Core.
+Inspired in part by [DownKyi](https://github.com/leiurayer/downkyi) and the broader open-source Bilibili tooling ecosystem.
 
 ---
 
