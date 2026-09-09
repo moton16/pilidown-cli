@@ -1,36 +1,37 @@
-# pilidown
+```html
+#pilidown
 
-A lightweight, standalone Bilibili downloader CLI and universal AI Agent Skill.
+轻量级、独立的哔哩哔哩命令行下载工具与通用 AI 代理技能模块。
 
 [English](#features) | [中文说明](#核心特性)
 
 ---
 
-## Features / 核心特性
+##Features / 核心特性
 
-- 🚀 **Zero External Binary Dependencies / 零外部二进制依赖**：使用纯 JS / WebAssembly 处理音视频流封装与转码（无需安装 FFmpeg 或 aria2，开箱即用）。
-- 🤖 **Universal AI Agent Skill / 通用智能体技能**：内置规范化 `SKILL.md`，可无缝集成到任意 AI Agent 平台（如 Antigravity, Claude Code, Codex, OpenClaw, Cursor, Trae 等）。
-- 📊 **Agent-Friendly JSON Lines / 结构化交互**：各主要命令支持 `--json` 输出流式 JSON Lines 事件，便于 LLM 和自动化脚本解析调用。
+- 🚀 **零外部二进制依赖**：采用纯 JS / WebAssembly 实现音视频流封装与转码（无需单独安装 FFmpeg 或 aria2，开箱即用）。
+- 🤖 **通用智能体技能**：内置标准化 `SKILL.md`，可无缝集成于各类 AI Agent 平台（如 Antigravity、Claude Code、Codex、OpenClaw、Cursor、Trae 等）。
+- 📊 **结构化交互输出**：主要命令均支持 `--json` 流式 JSON Lines 事件格式，方便 LLM 和自动化脚本解析调用。
 - 🔒 **Privacy & Security First / 隐私与安全优先**：用户凭据（Cookie / Token）仅保存在本机；命令输出默认屏蔽 CDN 临时带签名流地址；绝无外部遥测或第三方数据外发。
-- ⚡ **High-Speed Segmented Downloader / 高速分段下载**：支持多线程并发下载、自动 Range 探测与重试合并。
-- 🎬 **Comprehensive Content Support / 全面内容覆盖**：支持单视频、多 P 视频、UGC 合集、弹幕导出（ASS/XML）、字幕导出（SRT/JSON）、番剧、课程、收藏夹与历史记录。
+- ⚡ **高速分段下载引擎**：具备多线程并发下载能力，自动 Range 探测与断点续试合并机制。
+- 🎬 **全内容覆盖支持**：涵盖单视频、多期视频、UGC 合集、弹幕导出（ASS/XML）、字幕导出（SRT/JSON）、番剧、课程、收藏夹及历史记录等多元内容类型。
 
 ---
 
-## Quick Start / 快速开始
+##Quick Start / 快速开始
 
-### 1. Requirements
+###1. Requirements
 
 - **Node.js 18+**
 
-### 2. Run with Bundled Wrappers (No build required)
+###2. Run with Bundled Wrappers (No build required)
 
 本项目已在 `bin/` 提供构建好的跨平台启动脚本，会自动探测系统中安装的 Node.js：
 
-- **Windows**: `bin\pilidown.cmd <command>`
+- **Windows**: `bin\\pilidown.cmd <command>`
 - **macOS / Linux**: `bin/pilidown <command>`
 
-### 3. Build from Source
+###3. Build from Source
 
 ```bash
 npm ci
@@ -59,7 +60,7 @@ bin/pilidown download <url-or-bvid> --collection --output ./downloads
 bin/pilidown danmaku <url-or-bvid> --format ass --output ./danmaku.ass
 
 # 导出字幕（支持 srt / json / ass 格式）
-bin/pilidown subtitle <url-or-bvid> --format srt --output ./subtitle.srt
+bin/pilidown 字幕 --format srt --output ./subtitle.srt
 
 # 扫码登录（启动本地 127.0.0.1 网页，手机 App 扫码即可完成登录）
 bin/pilidown login
@@ -81,17 +82,15 @@ bin/pilidown status --json
 
 ---
 
-## Privacy Policy / 隐私说明
+## 隐私政策 / 隐私说明
 
-- **本地存储**：登录后的 Cookie 数据仅保存在用户本机的 `~/.pilidown/cookies.json` 中，权限设置为仅当前用户可读（POSIX 0600）。
-- **零泄露**：`pilidown` 不会上传、转发或向任何第三方发送用户的敏感凭据。
+- **
+```本地存储**
+```：登录后的 Cookie 数据仅保存在用户本机的 `~/.pilidown/cookies.json` 中，权限设置为仅当前用户可读（POSIX 0600）。
+- **"
+```零泄露**
+```：`pilidown` 不会上传、转发或向任何第三方发送用户的敏感凭据。
 - **合规声明**：请遵守哔哩哔哩（Bilibili）平台的服务条款和相关法律法规，仅用于学习交流及合法个人用途。
-
----
-
-## Acknowledgments / 鸣谢
-
-Inspired in part by [DownKyi](https://github.com/leiurayer/downkyi) and the broader open-source Bilibili tooling ecosystem.
 
 ---
 
