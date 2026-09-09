@@ -31,42 +31,63 @@
 | 打包 B：ESM + external | 转码成功，静态 import，全版本安全 |
 | 打包 C：ESM 全打包不 external | 失败，wasm 文件没进 bundle |
 | 打包 D：ESM 全打包 + 手放 `src/aac.wasm.cjs` | 转码成功，但等于在 MIT 项目里分发 GPL-2.0 代码 |
+| **fMP4 直通合并**（真实 B 站 AVC 流，118 片段） | 28.31MB / 69ms / RSS+3MB，ffprobe 双轨 295s 正确，`-xerror` 全解码零错误 |
+| fMP4 直通合并（ffmpeg 产物回归，显式 base 形态） | 9 片段，全解码零错误 |
+| fMP4 直通合并（337MB 输入） | 437ms，**RSS+15MB**（对照 convert 路径同输入 1986MB） |
+| B 站 tfhd/trun 形态 | tfhd flags=0x20038（自带 default-base-is-moof、无显式 base）→ moof+mdat 成对搬移即可；ffmpeg 产物为显式 base（0x39），需 trun data_offset 修正（两种形态均已实测覆盖） |
 
-结论：合并链路的正确性已验证（含 HEVC/AV1），剩下的问题是吞吐与内存；mp3 的能力本身没问题，问题在打包形态与许可证。
+结论（更新于 T1 二轮调研后）：合并链路有了更优解——**fMP4 直通合并**，跳过 `convertFmp4ToMp4`，内存从 4.7 倍文件大小降为 O(1)，正确性已用真实流与 ffmpeg 产物双重验证。mp3 的能力本身没问题，问题在打包形态与许可证。
 
 ## 3. 方案
 
 ### M1 合并链路重写（P0）
 
-改动文件：`src/utils/media.ts`（重写）、新增 `src/utils/mp4.ts`、`src/services/DownloadService.ts`（调用点）。
+改动文件：`src/utils/media.ts`（重写）、新增 `src/utils/fmp4.ts`、`src/services/DownloadService.ts`（调用点）。
 
-链路：
+**主路径：fMP4 直通合并**（T1 二轮调研的结论，替代原先"convert ×2 + box 合并"方案）：
 
 ```
-video.m4s --convertFmp4ToMp4--> 标准 MP4(视频轨) ┐
-audio.m4s --convertFmp4ToMp4--> 标准 MP4(音频轨) ┴--流式 box 合并--> out.mp4
+video.m4s ┐  双轨 moov 重建（视频 trak + 音频 trak + mvex 双 trex）
+audio.m4s ┴→ 逐片段搬 moof/mdat（tfhd 改写 + trun data_offset 修正）→ out.mp4（仍是 fMP4）
 ```
 
-`mp4.ts` 负责：box 扫描、trak 搬迁、trackID 重编号、`stco`/`co64` 偏移修正、`mvhd` duration 取两轨最大值、mdat 分块流式拷贝。它不解析 NAL、不看 codec，因此 AVC/HEVC/AV1 通用。
+要点（全部来自本机实测）：
 
-`convertFmp4ToMp4` 的输出布局是 `ftyp` + `moov` + `mdat`（337MB 文件的 moov 只有 109KB，HEVC 的 154KB），所以流式合并只需把 moov 读进内存，mdat 用 `createReadStream` 分块拷。实测 RSS 55MB。
+- **不经过 `convertFmp4ToMp4`**。337MB 输入 RSS+15MB，内存 O(1)；convert 路径同输入 1986MB。
+- 纯 box 搬运，不解析 NAL、不看 codec，AVC/HEVC/AV1 通用（直通路径对编码的兼容性与 convert 路径等价且更广）。
+- tfhd 统一改写为 `default-base-is-moof`：源带显式 `base_data_offset`（如 ffmpeg 产物，flags=0x39）时删除该字段并按 `corr = 新moof长 + base − 源moof起点 − 源moof长` 修正所有 trun 的 data_offset（mdat 头尺寸在公式两侧相消，无需出现）；源本就是 default-base-is-moof（B 站实流，flags=0x20038）时 moof+mdat 成对搬移、偏移天然有效。
+- 已踩过的坑：`hadBase` 必须以 tfhd 是否**真含** base 字段为准。初版把"存在 tfhd"误判为"有 base"，对 B 站流错误施加了 −moofStart 修正，产出 `Invalid NAL unit size`——该 bug 已在原型中复现并修复，写测试时必须覆盖"B 站形态（无显式 base）"与"ffmpeg 形态（显式 base）"两种 fixture。
+- B 站 .m4v 头部有 `sidx`、尾部可能有 `mfra`：一律丢弃（索引类 box，非必需，ffprobe 实测无影响）。
+- 新 moov：mvhd 取视频轨的，trak 按 handler（vide/soun）取轨并重编 trackID（1/2），mvex 双 trex 对应重编号。
+- mdat 分块拷贝带反压（`write` 返回 false 时等 `drain`），不整读文件。
 
-独立审查提出、本机实测排除的风险：tomp4 重建 moov 时已剥离 `edts`/`elst` 编辑列表与 `mvex`（实测 moov 子 box 只有 `mvhd, trak, udta`），"elst 导致开头 A/V 错位"与"mvex 残留让播放器找不存在的 moof"这两条不存在于本链路。实现时仍要处理三条：按 handler（`vide`/`soun`）取轨而非假设恰好两轨；`stco` 偏移叠加超过 32 位时必须升级为 `co64`；各轨 timescale 独立换算，不要混用。
+**兼容路径（可选 `--container mp4`）**：原方案保留——`convertFmp4ToMp4` ×2 → 流式 box 合并（搬 trak + 拼 mdat + 修 stco/co64 + 重编 trackID + 修 mvhd duration）。仅在用户显式要求传统 progressive MP4 容器（老硬件播放器、部分剪辑软件不认 fMP4）时启用。
+
+fMP4 输出的兼容面：浏览器 `<video>`、MSE、VLC、mpv、ffmpeg 均原生支持（B 站网页播放器自己就是 fMP4）；风险集中在老硬件播放器，这正是保留兼容路径的原因。
+
+`convertFmp4ToMp4` 输出布局为 `ftyp`+`moov`+`mdat`（337MB 文件的 moov 仅 109KB），兼容路径的流式合并把 moov 读进内存、mdat 分块拷，实测 RSS 55MB。
+
+独立审查提出、本机实测排除的风险：tomp4 重建 moov 时已剥离 `edts`/`elst` 编辑列表与 `mvex`（实测 moov 子 box 只有 `mvhd, trak, udta`）。实现时仍要处理三条：按 handler（`vide`/`soun`）取轨而非假设恰好两轨；兼容路径的 `stco` 偏移超过 32 位时升级 `co64`；各轨 timescale 独立换算。
 
 删除：`extractAudioFromMp4`（对音频-only 输入必抛错，且是死路）、`splitAvccNalus`（只服务废弃的 AVCC 路径，且硬编码 4 字节长度前缀）、`MP4Parser` 相关代码。
 
-验收：三种编码各跑一个真实视频，`ffprobe` 断言双轨 + 时长 + 帧数；`ffmpeg -v error -xerror -i out.mp4 -f null -` 零错误；与 `ffmpeg -c copy` 参考输出的时长一致。
+验收：三种编码各跑一个真实视频，`ffprobe` 断言双轨 + 时长 + 帧数；`ffmpeg -v error -xerror -i out.mp4 -f null -` 零错误；两种 tfhd 形态 fixture 各过一遍。**验证纪律：解码校验用 ≤60s 素材或 `-t` 限时长，禁止对 GB 级文件做全量解码**（本方案调研期间曾因此把 16GB 机器压到 OOM）。
 
 ### M2 音频导出（P0）
 
 `--audio-only` 默认输出 m4a：DASH 音频流本身就是 AAC，`convertFmp4ToMp4` 一步产出可播放 m4a，无需解码重编码。实测音频轨 6.68MB / 295.02s / aac 48k 2ch 正常。
 
-mp3 路径三选一（决策点 T2）：
-- ESM 构建 + `external: ['@audio/decode-aac']`：全 Node 版本安全，但 Skill 分发需要带 `node_modules`
-- 保持 CJS + `external`：最小改动，但要求 Node ≥ 22.12（`engines` 要改）
-- 砍掉 mp3，只出 m4a：零依赖、零许可证风险
+**T2 建议：砍掉 mp3。** 理由：
 
-三条都不 inline GPL wasm。若坚持单文件 + mp3，只能接受项目整体转 GPL-2.0，不建议。
+1. B 站音频原生 AAC，mp3 是有损转有损，音质纯降质，信息量为负
+2. mp3 链路绑死 GPL-2.0 解码器（`@audio/decode-aac` 内含 FAAD2）：任何 mp3 输出都要先 AAC→PCM（GPL 解码器）再进 lamejs 编码，这是许可证问题的总源头
+3. 砍掉后 P0-2 整体消失：不用改构建格式（CJS/ESM 之争）、不用抬 `engines`、不用 external、单文件分发与 wasm 加载问题不复存在
+4. 主要调用方是 Agent，m4a 无兼容性问题；人要 mp3 的场景（老车机等）用一条系统 ffmpeg 命令解决，不该由下载器承担
+5. 保 mp3 的最廉价方案（CJS+external）实测要求 Node ≥ 22.12，把最低版本从 18 抬到 22 去换一个降质转码，不划算
+
+过渡方案：`--format mp3` 保留一个版本但明确报弃用错误并提示 m4a，SKILL.md/README 同步；下个版本删参数。
+
+（若最终决定保留 mp3，则走 CJS + external，`engines.node` 提到 `>=22.12`，仅此一条路可接受；ESM 构建会让 Skill 分发带上 node_modules，与单文件分发冲突。）
 
 ### M3 失败可见性（P0）
 
@@ -92,9 +113,7 @@ mp3 路径三选一（决策点 T2）：
 - 分片续传：分片先落盘并记录已完成字节，单分片失败只重传该分片，不再删整个 tempDir 重来
 - 进度：`onProgress` 改为按流 `bytesRead` 累加触发，速度用全局时间窗采样，不在并发 worker 间共享可变状态
 
-`convertFmp4ToMp4` 那一步的 4.7 倍内存峰值暂不解决（决策点 T1）。要彻底解决得自研流式 fMP4 → progressive MP4：第一遍只读 `moof` 头统计采样数以算出 `moov` 大小，第二遍流式拷 mdat 数据，最后回填 `moov`。内存恒定，工作量约等于 M1 的两倍。
-
-延后不等于静默：转换前按 `文件大小 × 5` 估算峰值内存，超过阈值（默认 4GB，可用 `--max-media-mem` 覆盖）直接报错并提示改用 `--no-merge`，不把 OOM 留给用户。
+`convertFmp4ToMp4` 的 4.7 倍内存峰值随直通路径成为默认而**整体消失**（T1 已解决）。内存护栏（`文件大小 × 5` 预检、超 4GB 报错）只对兼容路径（`--container mp4`）生效。
 
 输出原子性：转换与合并都先写 `<dest>.part` 临时文件，成功后 `rename` 到目标名。中断不留半截可播放头却无尾的文件；`existsSafe` 跳过逻辑配合原子写才真正幂等。
 
@@ -102,7 +121,7 @@ mp3 路径三选一（决策点 T2）：
 
 `src/utils/media.ts` 和 `src/services/DownloadService.ts` 目前零覆盖，这是两个 P0 能进 main 的直接原因。
 
-- 新增 `tests/unit/mp4.test.ts`：用 ffmpeg 生成的固定 fMP4 fixture（几 MB），断言 box 结构（trak 数、stco 偏移、mdat 长度）
+- 新增 `tests/unit/fmp4.test.ts`：fixture 必须覆盖两种 tfhd 形态——B 站实流形态（default-base-is-moof、头部 sidx）与 ffmpeg 形态（显式 base_data_offset），断言 box 结构、trun 修正值、trackID 重编号
 - 新增 `tests/integration/media.test.ts`：跑真实合并，用 ffprobe 断言双轨与时长（CI 上可用 fixture，本机可跑真实流）
 - `tests/unit/downloadService.test.ts`：注入假的 downloader 与 media，断言失败会 throw、失败项进 failures
 - GitHub Actions：`tsc --noEmit` + `jest` + `build` + 产物 sha256 校验（构建可复现性已实测：重建产物与提交产物 sha256 完全一致）
@@ -127,37 +146,50 @@ mp3 路径三选一（决策点 T2）：
 | 转码抛错 | 记日志，保留原始 m4a，exit 0 | 同上 |
 | `--all` 部分页失败 | 只返回成功项，exit 0 | failures 数组 + exit 1 |
 | 分片下载超时 | 整体 reject，删 tempDir | 单分片重试，已下完的保留 |
-| fMP4 输入（当前全部情况） | `No video track found` | 走 convert 路径，成功 |
+| fMP4 输入（当前全部情况） | `No video track found` | 直通合并，成功（兼容路径留给 `--container mp4`） |
 | 解析不到宽高/采样率 | 静默用 1920x1080 / 48000 / 2 兜底 | 抛错（MP4 路径不再需要这些字段） |
 | fresh clone 无产物 | `MODULE_NOT_FOUND` | 产物已提交 |
 
 ## 5. 落地顺序
 
-1. M1 + M3（合并 + 失败可见性）—— 两个 P0 一起改，因为改完合并后失败路径才真正被触发
-2. M2（默认 m4a）—— 改动小，立刻让 `--audio-only` 可用
+1. M1 + M3（直通合并 + 失败可见性）—— 两个 P0 一起改，因为改完合并后失败路径才真正被触发
+2. M2（默认 m4a，砍 mp3）—— 改动小，立刻让 `--audio-only` 可用并解除 GPL 悬置
 3. M4 + M5（产物提交 + URL 门控）—— 各几行
-4. M6 的合并流式化 + mergeParts 异步化
-5. M7（测试 + CI）
-6. M8（一致性清理，可拆成多个小提交）
+4. M6 的 mergeParts 异步化 + 分片续传（合并流式化已内置于直通路径）
+5. M7（测试 + CI，fixture 必须含 B 站/ffmpeg 两种 tfhd 形态）
+6. 兼容路径（`--container mp4`，原 M1 方案的 convert+box 合并，可延后）
+7. M8（一致性清理，可拆成多个小提交）
 
 ## 6. 决策点
 
-| 编号 | 决策 | 选项 | 默认建议 |
-|---|---|---|---|
-| T1 | `convertFmp4ToMp4` 的内存（4.7x）现在解决吗 | 现在自研流式 / 延后 | 延后：复用已验证的库，M1 工作量减半；代价是 1GB 以上视频峰值约 5GB |
-| T2 | mp3 怎么保留 | ESM 构建 + external / CJS + external（Node ≥ 22.12）/ 砍掉只留 m4a | 默认 m4a，mp3 走 CJS + external 并把 engines 提到 22；Skill 场景不提供 mp3 |
-| T3 | `--output` 改名 | 改名 `--dir` / 保持 `--output` 但文档写明 / 两者都收 | 保持 `--output`，SKILL.md 与 README 明确写"目录"，避免破坏现有调用 |
-| T4 | 是否把 `bin/cli.cjs` 提交进仓库 | 提交 / 只改文档要求 build | 提交：`skills/` 下已经在提交产物，根目录不一致没有理由 |
+| 编号 | 决策 | 结论 |
+|---|---|---|
+| T1 | convert 内存（4.7x） | **已解决**：fMP4 直通合并为主路径，跳过 convert，内存 O(1)（337MB 输入 RSS+15MB），不再需要自研流式转换器 |
+| T2 | mp3 保留方式 | **建议砍掉**（理由见 M2），等最终拍板；若保留只能走 CJS+external + Node ≥ 22.12 |
+| T3 | `--output` 改名 | **已拍板**：不改名，SKILL.md 与 README 明确写"目录" |
+| T4 | `bin/cli.cjs` 提交进仓库 | **已拍板**：提交，与 `skills/pilidown/bin/cli.cjs` 同源 |
 
 ## 7. 审查记录
 
 本方案经过一轮独立工程审查（未参与制定的视角），采纳了以下调整：
 
 1. elst / mvex 风险 → 实测排除（见第 3 节 M1）
-2. convert 内存延后需加显式护栏，不能静默 OOM → 已加入 M6（`文件大小 × 5` 预检 + 阈值报错）
+2. convert 内存延后需加显式护栏，不能静默 OOM → 护栏保留，只对兼容路径生效（T1 被直通方案整体取代）
 3. 输出必须原子写（temp + rename）→ 已加入 M6
-4. 默认路径（m4a）必须保持单文件、广 Node 兼容，external 与 Node ≥ 22 只允许出现在 mp3 可选路径上 → 已写入 T2 默认建议
+4. 默认路径（m4a）必须保持单文件、广 Node 兼容，external 与 Node ≥ 22 只允许出现在 mp3 可选路径上 → 已写入 M2
 5. 退出码现在改：对人是修 bug，对 Agent 是契约修正，越晚改代价越高 → 与 M3 一致；同时在 SKILL.md 注明"部分失败时成品可能残缺，按文件检查而非只信退出码"
-6. 供应链风险（tomp4 单点依赖）→ 失败时报错精确到阶段（转换/合并），不硬崩；ffmpeg 兜底作为远期可选项不进本期
+6. 供应链风险（tomp4 单点依赖）→ 直通主路径后 tomp4 降级为兼容路径依赖，主链路零第三方 muxer；失败时报错精确到阶段
 
-未采纳：立即实现自研流式 fMP4 转换器（T1 延后，理由：复用已验证库、工作量减半，且有内存护栏兜底）。
+未采纳：立即实现自研流式 fMP4 转换器 —— 被二轮调研的 fMP4 直通合并取代（内存 O(1) 且工作量更小）。
+
+## 8. 直通合并原型验证记录（2026-09-09）
+
+原型 `merge-fmp4.mjs`（约 250 行）已完成三种素材验证：
+
+| 素材 | 形态 | 结果 |
+|---|---|---|
+| ffmpeg 产物 60s（360p+音频） | 显式 base（tfhd 0x39） | 14ms，RSS+3MB，全解码零错误 |
+| 真实 B 站流 295s（AVC 118 片段 + 音频） | default-base-is-moof（0x20038），头部 sidx | 69ms，RSS+3MB，双轨 295s，全解码零错误 |
+| ffmpeg 产物 900s（1080p，337MB） | 显式 base | 合并 437ms，RSS+15MB；109 个 mdat payload 与源逐字节一致 |
+
+第三项当时的 `-xerror` 全解码报 `get_buffer() failed`，归因为**验证方式资源叠加**（node 比对脚本持有 2×337MB Buffer + ffmpeg 多线程 1080p 全量解码同机运行），非数据错误：mdat 逐字节一致、结构 ffprobe 正常、同构小文件全解码通过。教训已写入 M1 验收纪律：禁止对 GB 级文件全量解码，校验用限时长解码 + 结构断言 + payload 字节比对。

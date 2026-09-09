@@ -39,6 +39,16 @@
 
 ### 2026-09-09 · WorkBuddy · docs
 
+（T1 新方向 + T2 建议 + T3/T4 拍板落档；commit 见 `git log -1 -- docs/plans/p0-fix-plan.md`）
+
+- 改动文件：
+  - `docs/plans/p0-fix-plan.md` — T1 二轮调研结论：**fMP4 直通合并**替代 convert+box 合并成为主路径（跳过 `convertFmp4ToMp4`，内存 4.7x → O(1)，337MB 输入 RSS+15MB；真实 B 站流 118 片段 69ms RSS+3MB 全解码零错误）。M1 重写（tfhd 改写规则、hadBase 判定坑、sidx/mfra 丢弃、两种 tfhd 形态 fixture 要求、验证纪律：禁止 GB 级文件全量解码）；M2 写入砍 mp3 建议与理由；M6 的 convert 内存段落删除；决策点表更新（T1 已解决 / T2 建议砍 / T3 不改名 / T4 提交）；新增第 8 节原型验证记录
+- 性质：docs
+- 重新构建：否
+- 备注：用户对 T1 否决"延后"方案并要求找新方向；fMP4 直通合并为本机实测验证（原型 ~250 行）。调研期间曾因对 337MB 文件做全量解码 + node 持有双 337MB 比对 buffer 把 16GB 机器压到 OOM，get_buffer 报错归因为资源叠加而非数据错误（mdat 逐字节一致），教训写入 M1 验收纪律。T3/T4 由用户确认按原建议执行，T2 待用户最终拍板
+
+### 2026-09-09 · WorkBuddy · docs
+
 （P0 修复方案入库；commit 见 `git log -1 -- docs/plans/p0-fix-plan.md`）
 
 - 改动文件：
