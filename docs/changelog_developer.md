@@ -39,6 +39,16 @@
 
 ### 2026-09-09 · WorkBuddy · docs
 
+（P0 修复方案入库；commit 见 `git log -1 -- docs/plans/p0-fix-plan.md`）
+
+- 改动文件：
+  - `docs/plans/p0-fix-plan.md` — 新增。P0/P1/P2 修复方案：合并链路重写（convertFmp4ToMp4 + 流式 box 合并）、音频导出默认 m4a、失败可见性与退出码、产物入库、URL 门控、内存护栏与原子写、测试与 CI、一致性清理；附实测数据、失败模式登记、落地顺序、4 个决策点、独立审查采纳记录
+- 性质：docs
+- 重新构建：否
+- 备注：方案中的实测均在本机完成（AVC/HEVC/AV1 真实流、337MB 大文件内存、四种打包配置、构建可复现 sha256）；独立审查提出的 elst/mvex 风险已实测排除，内存护栏、原子写、测试矩阵缺口已采纳进方案
+
+### 2026-09-09 · WorkBuddy · docs
+
 （本条记录紧随其后的那次提交，commit 见 `git log -1 -- docs/changelog_developer.md`）
 
 - 改动文件：
