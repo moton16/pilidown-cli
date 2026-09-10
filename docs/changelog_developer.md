@@ -35,6 +35,31 @@
 
 ---
 
+## 2026-09-10
+
+### 2026-09-10 · WorkBuddy · fix（P0 修复第一批）
+
+（commit 见 `git log -1 -- src/utils/fmp4.ts`）
+
+- 改动文件：
+  - `src/utils/fmp4.ts` — **新增**。fMP4 直通合并：双轨 moov 重建（两 trak + 双 trex，trackID 重编号）、逐片段搬 moof/mdat、tfhd 统一改 `default-base-is-moof`、trun data_offset 按 `corr = 新moof长 + base − 源moof起点 − 源moof长` 修正、mdat 4MB 分块拷贝带反压、原子写（`.part` → rename）。内存 O(1)：337MB 输入 RSS+15MB。含 9 个结构单测（`tests/unit/fmp4.test.ts`），覆盖 B 站（tfhd 0x20038 无显式 base）与 ffmpeg（0x39 显式 base）两种形态
+  - `src/utils/media.ts` — 重写。`mergeDashStreams` 改走直通合并；新增 `audioStreamToM4a`（`convertFmp4ToMp4` 一步出标准 m4a）；删除 `extractVideoAccessUnits`/`extractAudioAccessUnits`/`splitAvccNalus`/`transcodeToMp3`/`extractAudioFromMp4`/`floatToInt16` 及 MP4Parser 路径（-271 行）
+  - `src/services/DownloadService.ts` — 合并/转码失败不再 catch 吞掉，直接 throw；`downloadAllPages`/`downloadCollection` 改返回 `{ results, failures }`；`--format` 只接受 m4a，mp3 给明确弃用错误；durl + `--audio-only` 明确报错（原为静默保留原文件）；路径拼接统一 `path.join`；`extForVideo`/`extForAudio` 死分支简化
+  - `src/commands/download.ts` — `--codec` 补 `parseInt(v,10)`；`--all`/`--collection` 输出 failures（JSON 带 `failures` 数组）并在有失败时 `exitCode=1`；`--format` 默认 m4a
+  - `src/commands/fav.ts` — `--format` 默认 m4a；批量失败时 `exitCode=1`
+  - `src/commands/bangumi.ts`、`src/commands/cheese.ts` — 新增 `--show-url` 门控，默认不再输出 CDN 临时流 URL（JSON 与 human 两条路径都改）
+  - `skills/pilidown/SKILL.md` — 退出码契约改为"0 成功 / 1 失败且带 failures 数组"；合并与 mp3 描述同步
+  - `README.md` — "零外部二进制依赖"宣传改为 fMP4 直通合并表述
+  - `docs/quick_start.md` — 媒体处理章节、构建章节、已知缺陷区、禁改表同步（原缺陷 1–4 标记为已修复，新增 fMP4 容器兼容性等 6 条现存注意点）
+  - `package.json` / `package-lock.json` — 移除 `@audio/decode-aac`（GPL-2.0）与 `@breezystack/lamejs`
+  - `bin/cli.cjs`、`skills/pilidown/bin/cli.cjs` — 重新构建（两份 sha256 一致）；`.gitignore` 移除对 `bin/cli.cjs` 的忽略，产物入库
+  - 删除：`docs/plans/spec.md`（0 字节）、`skills/pilidown/darwin-results.tsv`、`skills/pilidown/test-prompts.json`（内部 eval 记录）
+- 性质：fix（含 refactor / chore）
+- 重新构建：是（`bin/cli.cjs` 与 `skills/pilidown/bin/cli.cjs` 已同步，产物 364KB → 257KB）
+- 备注：本机实测结论——真实 B 站流合并（AVC 118 片段，ffprobe 双轨 295s，前 20s 全解码零错误）；HEVC 1080p 端到端通过（`--quality 120 --codec 12`）；`--audio-only` 产出 7MB m4a；`--format mp3` exit 1；故意截断视频文件后合并失败 exit 1 且报错定位到字节偏移。`tsc --noEmit` 通过，jest 22 套件 242 用例全绿。未做：`--container mp4` 渐进式兼容路径、多线程下载字节级续传、`mergeParts` 异步化、CI（见 `docs/plans/p0-fix-plan.md` 第 5 节余下步骤）
+
+---
+
 ## 2026-09-09
 
 ### 2026-09-09 · WorkBuddy · docs

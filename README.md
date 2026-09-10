@@ -9,7 +9,7 @@
 
 ##Features / 核心特性
 
-- 🚀 **零外部二进制依赖**：采用纯 JS / WebAssembly 实现音视频流封装与转码（无需单独安装 FFmpeg 或 aria2，开箱即用）。
+- 🚀 **零外部二进制依赖**：采用纯 JS 实现 DASH 音视频流合并（fMP4 直通封装，无需单独安装 FFmpeg 或 aria2，开箱即用）。
 - 🤖 **通用智能体技能**：内置标准化 `SKILL.md`，可无缝集成于各类 AI Agent 平台（如 Antigravity、Claude Code、Codex、OpenClaw、Cursor、Trae 等）。
 - 📊 **结构化交互输出**：主要命令均支持 `--json` 流式 JSON Lines 事件格式，方便 LLM 和自动化脚本解析调用。
 - 🔒 **Privacy & Security First / 隐私与安全优先**：用户凭据（Cookie / Token）仅保存在本机；命令输出默认屏蔽 CDN 临时带签名流地址；绝无外部遥测或第三方数据外发。

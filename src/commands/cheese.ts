@@ -26,6 +26,7 @@ interface CheeseCommandOptions {
   ep?: string;
   quality: string;
   json?: boolean;
+  showUrl?: boolean;
 }
 
 export function registerCheeseCommand(program: Command): void {
@@ -36,6 +37,7 @@ export function registerCheeseCommand(program: Command): void {
     .option('--ep <id>', 'Fetch stream URL for this episode id (epXXX number)', '')
     .option('--quality <qn>', 'Preferred video quality (qn), e.g. 127=8K, 120=4K, 116=1080P60, 80=1080P', '80')
     .option('--json', 'Output as JSON Lines (for agent use)')
+    .option('--show-url', 'Include temporary stream URLs in output')
     .action(async (arg: string, opts: CheeseCommandOptions) => {
       if (opts.json) setJsonMode(true);
       try {
@@ -97,8 +99,7 @@ export function registerCheeseCommand(program: Command): void {
                   bandwidth: selected.video.bandwidth,
                   mimeType: selected.video.mimeType,
                   codecs: selected.video.codecs,
-                  baseUrl: selected.video.baseUrl,
-                  backupUrls: selected.video.baseBackupUrl,
+                  ...(opts.showUrl ? { baseUrl: selected.video.baseUrl, backupUrls: selected.video.baseBackupUrl } : {}),
                 }
               : null,
             audio: selected.audio
@@ -107,8 +108,7 @@ export function registerCheeseCommand(program: Command): void {
                   bandwidth: selected.audio.bandwidth,
                   mimeType: selected.audio.mimeType,
                   codecs: selected.audio.codecs,
-                  baseUrl: selected.audio.baseUrl,
-                  backupUrls: selected.audio.baseBackupUrl,
+                  ...(opts.showUrl ? { baseUrl: selected.audio.baseUrl, backupUrls: selected.audio.baseBackupUrl } : {}),
                 }
               : null,
             quality: selected.quality,
@@ -162,8 +162,8 @@ function printSeasonHuman(info: CheeseSeasonInfo): void {
 function printStreamHuman(r: {
   season_id: number;
   episode: { id: number; aid: number; cid: number; title: string; long_title: string; duration: number };
-  video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl: string } | null;
-  audio: { id: number; bandwidth: number; codecs: string; baseUrl: string } | null;
+  video: { quality: number; width: number; height: number; codecs: string; bandwidth: number; baseUrl?: string } | null;
+  audio: { id: number; bandwidth: number; codecs: string; baseUrl?: string } | null;
   acceptQuality: number[];
   acceptDescription: string[];
 }): void {
@@ -176,13 +176,13 @@ function printStreamHuman(r: {
     console.log(
       `视频流: qn=${r.video.quality}  ${r.video.width}x${r.video.height}  codec=${r.video.codecs}  bw=${r.video.bandwidth}`,
     );
-    console.log(`  URL: ${r.video.baseUrl}`);
+    if (r.video.baseUrl) console.log(`  URL: ${r.video.baseUrl}`);
   } else {
     console.log('视频流: (无)');
   }
   if (r.audio) {
     console.log(`音频流: id=${r.audio.id}  codec=${r.audio.codecs}  bw=${r.audio.bandwidth}`);
-    console.log(`  URL: ${r.audio.baseUrl}`);
+    if (r.audio.baseUrl) console.log(`  URL: ${r.audio.baseUrl}`);
   } else {
     console.log('音频流: (无)');
   }

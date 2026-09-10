@@ -42,7 +42,7 @@ export function registerFavCommand(program: Command): void {
     .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
     .option('--no-merge', 'Skip merge; keep separate .m4v + .m4a')
     .option('--audio-only', 'Download audio only (skip video stream), default output mp3')
-    .option('--format <fmt>', 'Audio format: mp3 (transcode) or m4a (original)', 'mp3')
+    .option('--format <fmt>', 'Audio format: m4a only (mp3 removed — native AAC; transcode with system ffmpeg if needed)', 'm4a')
     .option('--overwrite', 'Overwrite existing files instead of skipping')
     .option('--json', 'Output as JSON Lines (for agent use)')
     .action(
@@ -193,6 +193,7 @@ async function downloadFavFolder(mediaId: number, opts: {
   if (!opts.json) {
     console.log(`\n收藏夹下载完成：共 ${resources.length} 个视频，成功 ${succeeded}，失败 ${failed}，跳过 ${skipped}`);
   }
+  if (failed > 0) process.exitCode = 1;
 }
 
 function parseMid(v: string): number {

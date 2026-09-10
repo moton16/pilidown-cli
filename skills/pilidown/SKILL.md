@@ -28,7 +28,7 @@ Invoke this skill when the user wants to:
 1. Identify the user's intent and choose exactly one command family from the decision tree.
 2. Before the first download, run `pilidown status --json`; do not request, display, or transmit credentials.
 3. If login is needed, ask for confirmation before running `pilidown login`. The command starts a local HTTP QR page by default; `--qr-png <path>` also saves a local PNG. The user scans the QR code themselves.
-4. For agent-internal calls, use `--json` and parse JSON Lines event-by-event. Do not assume one JSON document or success from exit code alone.
+4. For agent-internal calls, use `--json` and parse JSON Lines event-by-event. Exit codes are now reliable: 0 = success, 1 = failure (including partial failures in `--all`/`--collection`, which also emit a `failures` array).
 5. For danmaku export, always provide `--output <path>` when using `--json`; otherwise the exported ASS/XML/raw body may be written to stdout alongside JSON events.
 6. Never print, copy, commit, persist, or upload `~/.pilidown/cookies.json` or temporary stream URLs.
 
@@ -230,10 +230,10 @@ pilidown download <url> --quality 32 --audio-quality 30216 --output ./downloads
 
 - `-352` risk control: auto-handled (injects buvid3 cookie, retries)
 - `-101` not logged in: tell user to run `pilidown login` first
-- FFmpeg is not required; pure JS/WASM handles the normal merge and MP3 conversion. If that processing fails, already downloaded `.m4v`/`.m4a` files are retained.
+- FFmpeg is not required; merge uses pure-JS fMP4 passthrough (video+audio → dual-track fMP4). If merge fails, the command exits 1 and the downloaded `.m4v`/`.m4a` files are retained for inspection.
 - Video not in collection: `download --collection` throws clear error
 - Page numbers are 1-based; current commands fall back to page 1 when the requested page is out of range.
-- Batch downloads continue after individual failures; inspect result counts and paths instead of trusting exit code alone.
+- Batch downloads continue after individual failures: exit code is 1 when anything failed, and `--json` output carries a `failures` array (page/episode + stage + error).
 
 ## Notes
 

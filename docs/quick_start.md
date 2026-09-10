@@ -100,7 +100,7 @@ parseEntrance(arg) → { type:'video', bvid }
 parseEntrance → getVideoInfo → getPlayUrl → selectStreams
     → downloadStream(video)   utils/downloader.ts 多线程分片
     → downloadStream(audio)
-    → media.mergeDashStreams(video, audio, out.mp4)     ← 已知缺陷区，见第 9 节
+    → media.mergeDashStreams(video, audio, out.mp4)     utils/fmp4.ts 直通合并，O(1) 内存
     → 输出 DownloadResult
 ```
 
@@ -160,7 +160,7 @@ parseEntrance → getVideoInfo → getPlayUrl → selectStreams
 
 **多线程下载**：`probeRangeSupport()` 用 `Range: bytes=0-0` 探测大小与 range 支持 → `createPartitions()` 固定 N 等分 → `Promise.all` 并发 → `mergeParts()` 同步合并。任一分片失败则整体 reject 并删除临时目录，无字节级续传。
 
-**零 FFmpeg 媒体处理**：`utils/media.ts` 用 tomp4 做 MP4 解析/封装，用 decode-aac + lamejs 做 AAC→MP3 转码。当前实现存在结构性缺陷，见第 9 节与 `docs/zero-ffmpeg-research.md`。
+**零 FFmpeg 媒体处理**：`utils/fmp4.ts` 做 fMP4 直通合并（双轨 moov 重建 + 逐片段搬 moof/mdat，O(1) 内存，不解析 NAL，AVC/HEVC/AV1 通用）；`utils/media.ts` 的 `audioStreamToM4a` 用 tomp4 的 `convertFmp4ToMp4` 一步把音频流转成标准 m4a。mp3 转码已按 T2 决策移除（B 站音频原生 AAC；原转码链路绑 GPL-2.0 解码器）。
 
 ## 8. 构建与分发链路
 
@@ -170,7 +170,7 @@ src/**/*.ts  ──esbuild──▶  bin/cli.cjs  ──复制──▶  skills/
                               └── bin/pilidown(.cmd) wrapper 调用
 ```
 
-`build.mjs` 配置：`bundle: true`、`platform: 'node'`、`format: 'cjs'`、`target: 'node18'`、`minify: true`、**无 external、无 `import.meta.url` define**。最后一条是已知问题的根因，详见第 9 节。
+`build.mjs` 配置：`bundle: true`、`platform: 'node'`、`format: 'cjs'`、`target: 'node18'`、`minify: true`。构建可复现（重建产物与提交产物 sha256 一致），`bin/cli.cjs` 已入库，fresh clone 可直接跑。
 
 改完 `src/` 后：
 
@@ -180,14 +180,14 @@ src/**/*.ts  ──esbuild──▶  bin/cli.cjs  ──复制──▶  skills/
 
 ## 9. 已知缺陷（改动前必读）
 
-完整调研见 `docs/zero-ffmpeg-research.md`。此处只列会直接影响改代码的结论：
+2026-09-09 的 P0 修复（合并链路 / mp3 移除 / 退出码 / URL 门控）之后，原缺陷 1–4 已修复。当前仍需注意的：
 
-1. **DASH 合并在真实场景下必然失败。** B 站 DASH 产出的是 fragmented MP4（moov 只有空骨架 + mvex，采样全在 moof/mdat 里），而 `utils/media.ts` 用的 `MP4Parser` 是渐进式 MP4 解析器，读不到采样 → 抛 `No video track found`。正确修法是改用同库的 `convertFmp4ToMp4()` 先转标准 MP4 再做 box 级合并，不是换库，也不需要引入 ffmpeg。
-2. **`--audio-only` 的 mp3 转码必然失败。** CJS bundle 里 `import.meta.url` 为 `undefined`，`@audio/decode-aac` 的 `createRequire(undefined)` 直接抛错。
-3. **失败被吞掉，退出码恒为 0。** `DownloadService.ts:255-258` catch 住合并失败只记日志；`download.ts` 照常打印 `Done.`。对外契约应该是"失败即非 0 退出码"，而不是让调用方自己猜。
-4. **`bangumi.ts` / `cheese.ts` 无条件打印流 URL**（`stream.ts` 有 `--show-url` 门控，这两处没有）。新增输出前先确认有没有同样的门控要求。
-5. **`utils/media.ts` 和 `services/DownloadService.ts` 零测试覆盖。** 233 个用例全在 API 解析与纯函数上。改这两个文件必须补测试或真机实测。
-6. **内存**：`mergeDashStreams` / `transcodeToMp3` / `convertTsToMp4` 都把整个文件读进内存再 build 整个输出，1GB 视频峰值可达 3–4GB。
+1. **合并输出是 fMP4 容器**（不是渐进式 MP4）。现代播放器（浏览器、VLC、mpv、ffmpeg）都支持，但老硬件播放器/部分剪辑软件可能不认。渐进式输出需走 `--container mp4` 兼容路径（尚未实现，方案见 `docs/plans/p0-fix-plan.md` M1 兼容路径）。
+2. **多线程下载无字节级续传**：任一分片失败整体 reject 并删除临时目录，只靠 backup URL 轮换。
+3. **进度与速度统计粗糙**：`onProgress` 在整分片完成才触发，速度统计在并发 worker 间共享可变状态，数字不准。
+4. **测试覆盖**：`fmp4.ts` 已有 9 个结构测试（覆盖 B 站/ffmpeg 两种 tfhd 形态），`DownloadService` 的批处理 failures 逻辑仍建议补测试。
+5. **未实测的编码矩阵**：E-AC-3（30250）、Hi-Res FLAC（30251）、杜比视界。容器搬运理论上 codec 无关，但真流未验证。
+6. **`mergeParts` 仍是同步 `readSync`/`writeSync`**（durl/ts 分段合并路径），大文件会阻塞事件循环。
 
 ## 10. 改动分区
 
@@ -217,11 +217,11 @@ src/**/*.ts  ──esbuild──▶  bin/cli.cjs  ──复制──▶  skills/
 | 位置 | 原因 |
 |---|---|
 | `bin/cli.cjs`、`skills/pilidown/bin/cli.cjs` | **构建产物，不要手改。** 要改就改 `src/` 再 `npm run build`。两份产物必须同源 |
-| `utils/media.ts` 中 `MP4Parser` 相关路径 | 见第 9 节第 1 条，这条路径本身是坏的，改它不如替换它 |
-| 把 `@audio/decode-aac` inline 进 bundle | 该包 LICENSE 为 **GPL-2.0**（内含 FAAD2）。本仓库是 MIT，静态分发会导致整个 CLI 须转 GPL。目前 wasm 未 inline，无现行违规——保持现状 |
+| `utils/fmp4.ts` 的 tfhd/trun 改写规则 | 已对 B 站（default-base-is-moof）与 ffmpeg（显式 base）两种形态实测验证，动它前先跑 `tests/unit/fmp4.test.ts` 并读 `docs/plans/p0-fix-plan.md` 第 8 节 |
+| 重新引入 `@audio/decode-aac` / `@breezystack/lamejs`（mp3 链路） | 已按 T2 决策移除：前者 **GPL-2.0**（内含 FAAD2），MIT 项目静态分发即违规；重引等于推翻决策。mp3 需求交给系统 ffmpeg |
 | `skills/pilidown/SKILL.md` 的调用契约 | Agent 依赖它决策。任何 CLI 参数或输出变化都必须同步，否则 Agent 会按旧契约调用 |
 | 提交 `cookies.json` / `config.json` / `.pilidown/` | 已在 `.gitignore`，含真实会话凭据 |
-| 提交 `skills/pilidown/darwin-results.tsv`、`test-prompts.json` | 内部 eval 记录，会随 Skill 分发给所有使用者 |
+| 提交内部 eval 记录（darwin-results.tsv、test-prompts.json 等） | 会随 Skill 分发给所有使用者（这两类文件已于 2026-09-09 清理） |
 
 ## 11. 常见任务速查
 

@@ -7,20 +7,20 @@
  *   - src/DownKyi/Services/Download/BuiltinDownloadService.cs (orchestration)
  *   - src/DownKyi.Core/FileName/FileName.cs (file naming — heavily simplified)
  *
- * Simplifications (ponytail):
- *   - Filename: `{title}-P{page}-{qn}.{ext}` (no builder pattern, no config).
- *   - Sanitize Windows + Unix illegal chars.
- *   - Concurrency control: simple p-limit-style promise pool (no extra dep).
- *   - No FFmpeg: uses pure JS/WASM merge (mp4box + @invintusmedia/tomp4).
+ * Failure policy (P0-3 fix): merge/transcode failures THROW — the caller (and
+ * therefore the exit code) must reflect reality. Batch downloads collect
+ * failures in a `failures` array instead of silently dropping them.
  */
 
 import { getVideoInfo, getPlayUrl } from '../api/VideoApi';
 import { selectStreams } from './StreamService';
 import { downloadMultiThread } from '../utils/downloader';
-import { mergeDashStreams, transcodeToMp3, extractAudioFromMp4 } from '../utils/media';
-import { loadCookies, toCookieHeader } from './CookieService';
+import { mergeDashStreams, audioStreamToM4a } from '../utils/media';
+import { loadCookies } from './CookieService';
 import { info as logInfo, warn as logWarn, error as logError, progress as logProgress } from '../utils/logger';
 import type { VideoInfo, DashVideo, DashAudio, PlayUrlDurl } from '../types/bili';
+import { existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 
 const ILLEGAL_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
 
@@ -36,10 +36,10 @@ export interface DownloadVideoOptions {
   outputDir: string;
   filename?: string; // override base name (no extension)
   threads?: number;
-  noMerge?: boolean; // skip ffmpeg merge, save separate .m4v/.m4a
+  noMerge?: boolean; // skip merge, save separate .m4v/.m4a
   overwrite?: boolean;
   audioOnly?: boolean; // only download audio, skip video stream
-  format?: string; // transcode audio to format: mp3/aac/flac/wav
+  format?: string; // audio format: m4a (only supported value; mp3 removed — see T2)
 }
 
 export interface DownloadResult {
@@ -53,19 +53,24 @@ export interface DownloadResult {
   durationMs: number;
 }
 
+export interface DownloadFailure {
+  page?: number;
+  episode?: number;
+  bvid?: string;
+  part?: string;
+  stage: string;
+  error: string;
+}
+
 function sanitizeFilename(s: string): string {
   return s.replace(ILLEGAL_FILENAME_CHARS, '_').trim() || 'untitled';
 }
 
-function extForVideo(v?: DashVideo): string {
-  if (!v) return 'mp4';
-  if (v.mimeType.includes('hevc') || v.codecs.startsWith('hev1')) return 'm4v';
-  if (v.mimeType.includes('av01') || v.codecs.startsWith('av01')) return 'm4v';
-  return 'm4v';
+function extForVideo(_v?: DashVideo): string {
+  return 'm4v'; // DASH video streams are always fMP4 regardless of codec
 }
 
-function extForAudio(a?: DashAudio): string {
-  if (!a) return 'm4a';
+function extForAudio(_a?: DashAudio): string {
   return 'm4a';
 }
 
@@ -105,7 +110,7 @@ async function downloadStream(
   throw lastErr ?? new Error(`All ${urls.length} stream URLs failed for ${qualityLabel}`);
 }
 
-/** Download a single video page (video + audio streams, merge if ffmpeg available). */
+/** Download a single video page (video + audio streams, passthrough merge). */
 export async function downloadVideo(opts: DownloadVideoOptions): Promise<DownloadResult> {
   const start = Date.now();
   const info = await getVideoInfo({ bvid: opts.bvid, aid: opts.aid });
@@ -113,6 +118,7 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
   const page = info.pages[pageIdx] ?? info.pages[0];
   if (!page) throw new Error(`Page ${opts.page} not found in ${info.bvid}`);
 
+  const format = normalizeAudioFormat(opts.format, opts.audioOnly);
   const cookies = loadCookies().cookies;
   const playUrl = await getPlayUrl({
     bvid: opts.bvid,
@@ -147,10 +153,10 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
   let audioPath: string | undefined;
   let mergedPath: string | undefined;
 
-  // Legacy FLV/MP4 single-file fallback (no separate audio, no ffmpeg merge needed).
   if (selected.durl) {
+    // Legacy FLV/MP4 single-file fallback (no separate audio stream).
     const durlExt = extForDurl(selected.durl);
-    const durlPath = `${opts.outputDir}/${baseName}.${durlExt}`;
+    const durlPath = join(opts.outputDir, `${baseName}.${durlExt}`);
     if (!opts.overwrite && existsSafe(durlPath)) {
       logInfo('skip existing durl file', { path: durlPath });
       mergedPath = durlPath;
@@ -161,101 +167,57 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
       mergedPath = durlPath;
     }
 
-    // audio-only: extract audio from durl, optionally transcode
     if (opts.audioOnly) {
-      const fmt = opts.format ?? 'mp3';
-      const audioOut = `${opts.outputDir}/${baseName}.${fmt}`;
-      const durlLower = durlPath.toLowerCase();
-      if (durlLower.endsWith('.mp4') || durlLower.endsWith('.m4v')) {
-        // MP4/fMP4 container: extract audio with pure JS
-        logInfo('extracting audio from durl (pure JS)', { format: fmt, output: audioOut });
-        try {
-          if (fmt === 'mp3') {
-            // Extract to m4a first, then transcode to mp3
-            const m4aPath = `${opts.outputDir}/${baseName}-temp.m4a`;
-            await extractAudioFromMp4(durlPath, m4aPath);
-            await transcodeToMp3(m4aPath, audioOut, 192);
-          } else {
-            // For m4a/aac: just extract audio track
-            await extractAudioFromMp4(durlPath, audioOut);
-          }
-          if (durlPath !== audioOut) try { require('node:fs').rmSync(durlPath, { force: true }); } catch { /* ignore */ }
-          mergedPath = audioOut;
-          logInfo('audio extraction complete', { path: audioOut });
-        } catch (err) {
-          logError('audio extraction failed, keeping original durl', { error: (err as Error).message });
-        }
-      } else {
-        // FLV or other: not supported in pure JS, keep original
-        logWarn('FLV audio extraction not supported (no ffmpeg), keeping original file', { path: durlPath });
-        mergedPath = durlPath;
-      }
+      // durl containers have no separate audio track to extract cleanly in
+      // pure JS — fail loudly instead of silently returning the wrong file.
+      throw new Error(
+        `--audio-only is not supported for durl (legacy FLV/MP4) streams; got ${durlExt.toUpperCase()} at ${durlPath}`,
+      );
     }
   } else {
     // audio-only: skip video download entirely
-    if (opts.audioOnly) {
-      videoPath = undefined;
-    } else {
-      videoPath = selected.video
-        ? `${opts.outputDir}/${baseName}-${selected.video.id}.${videoExt}`
-        : undefined;
-      if (videoPath) {
-        if (!opts.overwrite && existsSafe(videoPath)) {
-          logInfo('skip existing video file', { path: videoPath });
-        } else {
-          const videoUrls = [selected.video!.baseUrl, ...(selected.video!.baseBackupUrl ?? [])];
-          logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video!.id, fallbacks: videoUrls.length - 1 });
-          await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video!.id}`);
-        }
+    if (!opts.audioOnly && selected.video) {
+      videoPath = join(opts.outputDir, `${baseName}-${selected.video.id}.${videoExt}`);
+      if (!opts.overwrite && existsSafe(videoPath)) {
+        logInfo('skip existing video file', { path: videoPath });
+      } else {
+        const videoUrls = [selected.video.baseUrl, ...(selected.video.baseBackupUrl ?? [])];
+        logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video.id, fallbacks: videoUrls.length - 1 });
+        await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video.id}`);
       }
     }
 
     audioPath = selected.audio
-      ? `${opts.outputDir}/${baseName}-${selected.audio.id}.${audioExt}`
+      ? join(opts.outputDir, `${baseName}-${selected.audio.id}.${audioExt}`)
       : undefined;
-    if (audioPath) {
+    if (audioPath && selected.audio) {
       if (!opts.overwrite && existsSafe(audioPath)) {
         logInfo('skip existing audio file', { path: audioPath });
       } else {
-        const audioUrls = [selected.audio!.baseUrl, ...(selected.audio!.baseBackupUrl ?? [])];
-        logInfo('downloading audio', { url: audioUrls[0].slice(0, 80), id: selected.audio!.id, fallbacks: audioUrls.length - 1 });
-        await downloadStream(audioUrls, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio!.id}`);
+        const audioUrls = [selected.audio.baseUrl, ...(selected.audio.baseBackupUrl ?? [])];
+        logInfo('downloading audio', { url: audioUrls[0].slice(0, 80), id: selected.audio.id, fallbacks: audioUrls.length - 1 });
+        await downloadStream(audioUrls, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio.id}`);
       }
     }
 
     if (opts.audioOnly && audioPath) {
-      // transcode audio to target format (default mp3)
-      const fmt = opts.format ?? 'mp3';
-      const audioOut = `${opts.outputDir}/${baseName}.${fmt}`;
-      if (fmt === 'mp3') {
-        logInfo('transcoding audio to mp3 (pure JS/WASM)', { from: audioExt, to: fmt, output: audioOut });
-        try {
-          await transcodeToMp3(audioPath, audioOut, 192);
-          mergedPath = audioOut;
-          audioPath = audioOut;
-          logInfo('transcode complete', { path: audioOut });
-        } catch (err) {
-          logError('transcode failed, keeping original audio', { error: (err as Error).message });
-          mergedPath = audioPath;
-        }
-      } else if (fmt === 'm4a') {
-        // No transcoding needed — keep original m4a
-        mergedPath = audioPath;
-      } else {
-        // aac/flac/wav not supported in pure JS yet
-        logWarn('format not supported in pure JS mode, keeping original .m4a', { format: fmt });
-        mergedPath = audioPath;
-      }
+      // DASH audio is native AAC; one conversion step yields a playable .m4a.
+      // format is already normalized ('m4a'); mp3 was rejected up front.
+      const audioOut = join(opts.outputDir, `${baseName}.m4a`);
+      await audioStreamToM4a(audioPath, audioOut);
+      if (audioOut !== audioPath) safeUnlink(audioPath);
+      audioPath = audioOut;
+      mergedPath = audioOut;
     } else if (!opts.noMerge && videoPath && audioPath) {
-      mergedPath = `${opts.outputDir}/${baseName}.mp4`;
-      logInfo('merging video + audio (pure JS)', { output: mergedPath });
-      try {
-        await mergeDashStreams(videoPath, audioPath, mergedPath);
-        logInfo('merge complete', { path: mergedPath });
-      } catch (err) {
-        logError('merge failed, keeping separate streams', { error: (err as Error).message });
-        mergedPath = undefined;
-      }
+      mergedPath = join(opts.outputDir, `${baseName}.mp4`);
+      logInfo('merging video + audio (fMP4 passthrough)', { output: mergedPath });
+      // No try/catch here: merge failure must fail the command (exit 1),
+      // keeping the downloaded streams for inspection.
+      await mergeDashStreams(videoPath, audioPath, mergedPath);
+      safeUnlink(videoPath);
+      safeUnlink(audioPath);
+      videoPath = undefined;
+      audioPath = undefined;
     }
   }
 
@@ -274,12 +236,12 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
 /** Download all pages of a video concurrently (max 3 at a time). */
 export async function downloadAllPages(
   opts: Omit<DownloadVideoOptions, 'page'> & { pages?: number[] },
-): Promise<DownloadResult[]> {
+): Promise<{ results: DownloadResult[]; failures: DownloadFailure[] }> {
   const info = await getVideoInfo({ bvid: opts.bvid, aid: opts.aid });
   const pages = opts.pages ?? info.pages.map(p => p.page);
   const concurrency = 3;
   const results: DownloadResult[] = [];
-  // ponytail: simple promise pool, no extra dep.
+  const failures: DownloadFailure[] = [];
   let cursor = 0;
   async function worker(): Promise<void> {
     while (cursor < pages.length) {
@@ -289,12 +251,14 @@ export async function downloadAllPages(
         const r = await downloadVideo({ ...opts, page: pageNo });
         results.push(r);
       } catch (err) {
-        logError('page download failed', { page: pageNo, error: (err as Error).message });
+        const e = err as Error;
+        logError('page download failed', { page: pageNo, error: e.message });
+        failures.push({ page: pageNo, bvid: opts.bvid, stage: 'download', error: e.message });
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pages.length) }, () => worker()));
-  return results;
+  return { results, failures };
 }
 
 /**
@@ -304,12 +268,11 @@ export async function downloadAllPages(
  */
 export async function downloadCollection(
   opts: Omit<DownloadVideoOptions, 'page'>,
-): Promise<DownloadResult[]> {
+): Promise<{ results: DownloadResult[]; failures: DownloadFailure[] }> {
   const info = await getVideoInfo({ bvid: opts.bvid, aid: opts.aid });
   if (!info.ugc_season) {
     throw new Error(`${info.bvid} does not belong to a UGC collection (ugc_season missing)`);
   }
-  // ponytail: flatten sections → episode list → download each as its own video
   const episodes: { bvid: string; aid: number; cid: number; title: string }[] = [];
   for (const section of info.ugc_season.sections ?? []) {
     for (const ep of section.episodes ?? []) {
@@ -318,6 +281,7 @@ export async function downloadCollection(
   }
   const concurrency = 3;
   const results: DownloadResult[] = [];
+  const failures: DownloadFailure[] = [];
   let cursor = 0;
   async function worker(): Promise<void> {
     while (cursor < episodes.length) {
@@ -335,14 +299,34 @@ export async function downloadCollection(
         });
         results.push(r);
       } catch (err) {
-        logError('collection episode failed', { episode: idx + 1, bvid: ep.bvid, error: (err as Error).message });
+        const e = err as Error;
+        logError('collection episode failed', { episode: idx + 1, bvid: ep.bvid, error: e.message });
+        failures.push({ episode: idx + 1, bvid: ep.bvid, part: ep.title, stage: 'download', error: e.message });
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, episodes.length) }, () => worker()));
-  return results;
+  return { results, failures };
+}
+
+/** Only m4a is supported (T2: mp3 removed — lossy→lossy + GPL entanglement). */
+function normalizeAudioFormat(format: string | undefined, audioOnly?: boolean): 'm4a' {
+  const fmt = (format ?? 'm4a').toLowerCase();
+  if (fmt === 'm4a') return 'm4a';
+  if (fmt === 'mp3') {
+    throw new Error(
+      "mp3 output has been removed: Bilibili audio is native AAC and mp3 transcode degraded quality " +
+      "(also required a GPL-licensed decoder). Use the default m4a instead; " +
+      "convert with a system ffmpeg if you truly need mp3.",
+    );
+  }
+  throw new Error(`--format must be m4a (got "${format}")${audioOnly ? '' : ' (only relevant with --audio-only)'}`);
 }
 
 function existsSafe(p: string): boolean {
-  try { return require('node:fs').existsSync(p); } catch { return false; }
+  try { return existsSync(p); } catch { return false; }
+}
+
+function safeUnlink(p: string): void {
+  try { rmSync(p, { force: true }); } catch { /* ignore */ }
 }
