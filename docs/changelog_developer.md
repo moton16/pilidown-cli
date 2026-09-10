@@ -35,6 +35,17 @@
 
 ## 2026-09-10
 
+### 2026-09-10 · Antigravity/Gemini 3.8 Flash · chore（发布 v0.2.0 版本）
+
+- 改动文件：
+  - `package.json` — 版本提升至 `0.2.0`。
+  - `package-lock.json` — 根版本同步提升至 `0.2.0`。
+  - `src/index.ts` — CLI 程序声明版本更新为 `0.2.0`。
+  - `bin/cli.cjs`、`skills/pilidown/bin/cli.cjs` — 重新构建同步版本字符串至 `0.2.0`。
+- 性质：chore(release)
+- 重新构建：是
+- 备注：v0.2.0 正式发布版本。包含 P1 第二批核心特性（断点续传直写与清单机制、渐进式 MP4 容器合并与内存护栏、批处理 failures 分类与确定性排序、GitHub Actions 自动化 CI 矩阵）以及 Darwin Skill 8 维度评估优化。
+
 ### 2026-09-10 · Antigravity/Gemini 3.8 Flash · docs（Skill 瘦身防过拟合与外部 FFmpeg 降级 SOP 落地）
 
 - 改动文件：
