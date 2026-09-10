@@ -33,9 +33,13 @@
 - 模型只在对应 agent 的系统提示明确表述底层模型时列出，否则留空
 - 记录当前 commit 自身时无法在文件内写自身 hash（写入后 amend 会改变 hash），此时省略 hash，用「日期 + agent + 类型」定位，或用 `git log -1 -- docs/changelog_developer.md` 查询
 
----
-
 ## 2026-09-10
+
+### 2026-09-10 · Antigravity/Gemini 3.8 Flash · docs（Skill 瘦身防过拟合与外部 FFmpeg 降级 SOP 落地）
+
+- 改动文件：
+  - `skills/pilidown/SKILL.md` — 依照 Progressive Disclosure（渐进式揭示）原则进行深度重构与瘦身：行数从 247 行削减至 51 行（缩减 79%），体积减少 64%（~4.3KB）；合并冗余的双轨命令模板与工作流，移除诱发模型幻觉的静态硬编码码率表，推行动态流探测原则；补齐关键的外部 FFmpeg 降级接盘 SOP（4步容灾流程），形成 100% 交付闭环。
+- 性质：docs（优化 Skill Prompt，消除 Agent 过拟合与上下文浪费）
 
 ### 2026-09-10 · Antigravity/Gemini 3.8 Flash · feat（P1 第二批方案全面落地）
 

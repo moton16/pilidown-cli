@@ -1,246 +1,50 @@
 ---
 name: "pilidown"
-description: "Bilibili downloader CLI (pilidown). Invoke when user wants to download Bilibili videos, fetch video/stream info, get danmaku/subtitles, download collections, or query favorites/history/user space. Supports bangumi and cheese too."
+description: "Bilibili downloader CLI (pilidown). Invoke to download Bilibili videos, audio, collections, danmaku, subtitles, or query stream/user info. Bundled self-contained Node.js CLI."
 ---
 
 # pilidown - Bilibili Downloader Skill
 
-A lightweight CLI tool and universal Agent Skill for downloading Bilibili videos.
+A lightweight, zero-dependency Bilibili CLI and universal Agent Skill.
+- **Bundled Executable**: `<skill_dir>/bin/pilidown.cmd` (Windows) or `<skill_dir>/bin/pilidown` (Unix/macOS). In templates below, `pilidown` represents this binary.
+- **Environment**: Node.js 20+ required. Pre-bundled (`bin/cli.cjs`), zero external build dependencies (no ffmpeg, python, or browser needed).
 
-## When to Invoke
+## Core Guardrails
 
-Invoke this skill when the user wants to:
-- Download a Bilibili video (single, multi-page, or entire collection)
-- Query video info / stream URLs / available qualities
-- Fetch danmaku (弹幕) or subtitles (字幕)
-- Login to Bilibili (for history/favorites/high-quality streams)
-- List favorites, watch history, or user publications
-- Fetch bangumi (anime) or cheese (course) info
+1. **Machine-Readable Protocol**: Always append `--json` for agent-internal calls to parse structured JSON Lines. Omit `--json` only when printing human-readable text directly for the user.
+2. **Privacy & Security**: Never print, commit, or transmit `~/.pilidown/cookies.json` or signed media URLs. Check login state non-intrusively via `pilidown status --json`.
+3. **No Redundant Probes**: Never run `info` or `stream` before `download` (`download` automatically negotiates and selects streams).
+4. **Dynamic Stream Negotiation**: Stream availability is dynamic per video. Query `pilidown stream <url> --json` rather than hardcoding static codec IDs. Defaults: 1080P (`-q 80`) when logged in, 360P (`-q 16`) anonymously.
 
-**Binary (self-contained)**: this skill bundles the built CLI in `<skill_dir>/bin/`. On Windows run `<skill_dir>/bin/pilidown.cmd`; on Unix/macOS run `<skill_dir>/bin/pilidown`. The wrappers probe Node.js from PATH and common install locations, then run the bundled `cli.cjs` in the same directory.
+## Command Routing Matrix
 
-- `<skill_dir>` = the directory containing this SKILL.md. Locate it first (e.g. the agent's working directory or the skill install folder), then append `/bin/pilidown.cmd` (Windows) or `/bin/pilidown` (Unix).
-- In all command templates below, `pilidown` stands for that binary.
-- No `npm ci` / `npm run build` needed — the CLI is pre-built and bundled. The only system requirement is Node.js 20+.
+| User Intent | Command Template | Notes & Flags |
+|---|---|---|
+| **Download video** | `pilidown download <url-or-bv> --output <dir>` | Default: fMP4 (O(1) memory, no ffmpeg). Add `-q <qn>` or `--page <n>` as needed. |
+| **Download entire collection (合集)** | `pilidown download <url-or-bv> --collection --output <dir>` | Downloads all UGC episodes; outputs `{season}-ep{N}-{title}.mp4`. |
+| **Download audio only** | `pilidown download <url-or-bv> --audio-only --output <dir>` | Outputs native `.m4a` without transcoding quality loss. |
+| **Legacy player MP4** | `pilidown download <url-or-bv> --container mp4 --output <dir>` | Dual-track progressive MP4 merge with memory preflight guard. |
+| **Skip merge (separate streams)** | `pilidown download <url-or-bv> --no-merge --output <dir>` | Retains raw `.m4v` and `.m4a` streams for external toolchains. |
+| **Danmaku (弹幕)** | `pilidown danmaku <url-or-bv> --format ass --output <file>` | Formats: `ass` (recommended), `xml`, `raw`. Always supply `--output` with `--json`. |
+| **Subtitles (字幕)** | `pilidown subtitle <url-or-bv> --format srt --output <file>` | Formats: `srt`, `json`, `ass`. |
+| **Query video streams / metadata** | `pilidown info <url-or-bv>`<br>`pilidown stream <url-or-bv> --json` | `info` queries title/pages (1 API); `stream` queries available qualities/codecs. |
+| **Login / Login status** | `pilidown status --json`<br>`pilidown login` | `status` checks login boolean; `login` generates QR code for user to scan. |
+| **Favorites / History / Space** | `pilidown fav <mid> --json`<br>`pilidown history --json`<br>`pilidown space <mid> --pub --json` | Requires login. Returns compact JSON records. |
+| **Bangumi / Cheese** | `pilidown bangumi <url> --json`<br>`pilidown cheese <url> --json` | Anime season/episodes and course streams. |
 
-## Invocation Contract
+## Error Handling & FFmpeg Fallback SOP
 
-1. Identify the user's intent and choose exactly one command family from the decision tree.
-2. Before the first download, run `pilidown status --json`; do not request, display, or transmit credentials.
-3. If login is needed, ask for confirmation before running `pilidown login`. The command starts a local HTTP QR page by default; `--qr-png <path>` also saves a local PNG. The user scans the QR code themselves.
-4. For agent-internal calls, use `--json` and parse JSON Lines event-by-event. Exit codes are now reliable: 0 = success, 1 = failure (including partial failures in `--all`/`--collection`, which also emit a `failures` array).
-5. For danmaku export, always provide `--output <path>` when using `--json`; otherwise the exported ASS/XML/raw body may be written to stdout alongside JSON events.
-6. Never print, copy, commit, persist, or upload `~/.pilidown/cookies.json` or temporary stream URLs.
+- **Risk control (-352)**: Automatically bypassed by buvid3 injection and retry.
+- **Login required (-101)**: Instruct user to execute `pilidown login` to scan QR code.
+- **Batch failures**: `--all` and `--collection` record individual failures in a sorted `failures` array and set exit code 1.
+- **Resuming**: Enabled by default (`.part` + `.partstate.json`). Use `--no-resume` to discard corrupt partial states and force a clean restart.
 
-Input rules: video commands accept a video URL, BV ID, or AV ID; `bangumi` and `cheese` use their own season/course input; `space` requires a numeric UID; `fav` requires a numeric UID; `history` takes no input.
-
-## Initialization and Login Privacy
-
-Before the first download, ask whether the user has already logged in to Bilibili locally. Do not ask for a password, QR token, SESSDATA value, or any other secret. If the user wants to log in, run `pilidown login` so they can scan the QR code themselves.
-
-Login state is local to the current machine and is stored in the user's `~/.pilidown/cookies.json`; it is not uploaded by this Skill. The file contains sensitive session credentials: do not print, copy, commit, or send it anywhere. Users are responsible for complying with Bilibili's terms and applicable law. Without local login, Bilibili may restrict downloads to the lowest available quality; the CLI therefore defaults anonymously to the lowest quality and 64k audio. With local login, defaults request 1080P (`qn=80`, actual FPS and fallback are decided by the API) and 192k audio (`30280`). Use `pilidown status --json` to inspect only the boolean login state and recommended defaults.
-
-## Decision Tree — Which Command to Call
-
-| User intent | Command | Cost |
-|-------------|---------|------|
-| "查信息/基本信息/这是什么视频" | `info <url>` | cheap (1 API) |
-| "画质/音质/有哪些清晰度" | `stream <url> --json` | medium (2 API) |
-| "获取临时流地址" | `stream <url> --json --show-url` | medium (2 API) |
-| "下载这个视频" (single) | `download <url>` | expensive (download) |
-| "下载整个合集/全部" | `download <url> --collection` | very expensive |
-| "弹幕" | `danmaku <url> --format ass` | cheap |
-| "字幕" | `subtitle <url> --format srt` | cheap |
-| "登录" | `login` | interactive (QR scan) |
-| "登录状态" | `status --json` | cheap |
-| "指定用户的收藏夹列表" | `fav <mid> --json` (needs login) | cheap |
-| "按 media_id 查询收藏夹内容" | `fav <mid> --media <id> --json` (needs login; `<mid>` 仍是当前 CLI 的必填 UID 参数) | cheap |
-| "观看历史" | `history` (needs login) | cheap |
-| "稍后再看" | `history --toview` (needs login) | cheap |
-| "UP主/用户空间/某人投稿" | `space <mid> --pub` | cheap |
-| "用户信息" | `space <mid>` | cheap |
-| "番剧/anime" | `bangumi <url>` | cheap |
-| "课程/cheese" | `cheese <url>` | cheap |
-
-## Token-Saving Rules (CRITICAL)
-
-1. **Agent internal calls**: always add `--json` (structured output, easier to parse, less prose).
-2. **Display to user**: omit `--json` (human-readable, but still concise).
-3. **Never call `stream` before `download`**: `download` internally fetches streams itself. Calling `stream` first wastes 1 API call.
-4. **Never re-call `info`**: if you already have video info from a previous call in the same conversation, reuse it.
-5. **Prefer `info` over `stream`** when user just wants to know "what is this video" — info is 1 API, stream is 2.
-6. **For downloads, check local login before the first download**: anonymous defaults are qn=16 and audio 30216; logged-in defaults request qn=80 (1080P; actual FPS and fallback are decided by the API) and audio 30280 (192k). Use qn=116 explicitly for 1080P60; higher qualities may need 大会员. `--quality` is a preference, not a guarantee.
-7. **Use `--json` for `fav`/`history`/`space`**: their human output is verbose; JSON is more compact for agent parsing.
-
-## Command Templates
-
-### Query info (basic — no stream URLs)
-```bash
-pilidown info <url-or-bv>
-# Shows: title, UP, stats, pages, collection (if any)
-```
-
-### Query stream info (quality/codecs available)
-```bash
-pilidown stream <url-or-bv> --json
-# Returns stream metadata: quality, codec, resolution and bandwidth.
-# Add --show-url only when the user explicitly requests temporary URLs.
-pilidown stream <url-or-bv> --json --show-url
-```
-
-### Download single video
-```bash
-pilidown download <url-or-bv> --quality <qn> --audio-quality <id> --output <dir>
-# Logged-in default: --quality 80 (1080P) --audio-quality 30280 (192k)
-# Anonymous default: --quality 16 --audio-quality 30216 (64k)
-# Small audio: --audio-quality 30216 (64k, ~50% smaller)
-# Multi-page: --all (all pages) or --page <n>
-# Skip merge: --no-merge (DASH usually keeps .m4v + .m4a; durl may remain .mp4/.flv)
-# Container: --container mp4 for legacy player progressive MP4 (default: fmp4, O(1) memory)
-# Resuming: enabled by default with byte-level precision; use --no-resume to restart from scratch
-```
-
-### Download entire collection (合集)
-```bash
-pilidown download <url-or-bv> --collection --output <dir>
-# Input any bvid belonging to the collection — auto-fetches all episodes
-# Files named: {collectionTitle}-ep{N}-{episodeTitle}.mp4
-```
-
-### Danmaku (弹幕)
-```bash
-pilidown danmaku <url-or-bv> --format ass
-# Formats: ass (recommended), xml, raw; --json means JSONL status events, not JSON danmaku content
-# Use --page <n> for specific page
-# With --json, always add --output <path>; raw without output writes binary data to stdout.
-```
-
-### Subtitles (字幕)
-```bash
-pilidown subtitle <url-or-bv> --format srt
-# Formats: srt, json, ass
-```
-
-### Login (interactive — QR code)
-```bash
-pilidown login
-# Starts a local HTTP QR page; user scans with Bilibili mobile app
-# Optional: --qr-png <path> also saves a local PNG and prints terminal QR output
-# Cookies persist in ~/.pilidown/cookies.json
-# Required for: history, favorites, 1080P+ on some videos
-```
-
-### Favorites (needs login)
-```bash
-pilidown fav <mid> --json           # list user's favorite folders
-pilidown fav <mid> --media <id> --json  # list resources by media_id; <mid> remains required by CLI
-```
-
-### History (needs login)
-```bash
-pilidown history --json             # watch history
-pilidown history --toview --json    # "to view later" list
-```
-
-### User space
-```bash
-pilidown space <mid> --json          # user info
-pilidown space <mid> --pub --json   # user's publications (videos)
-```
-
-### Bangumi / Cheese
-```bash
-pilidown bangumi <url-or-id> --json                 # season info only
-pilidown bangumi <url-or-id> --ep <episode-id> --json  # season + selected episode stream
-pilidown cheese <url-or-id> --json                  # course info only
-pilidown cheese <url-or-id> --ep <episode-id> --json   # course + selected episode stream
-```
-
-## Reference Tables
-
-### Video quality (qn)
-| qn | Description |
-|----|-------------|
-| 127 | 8K HDR |
-| 120 | 4K |
-| 116 | 1080P60 |
-| 112 | 1080P+ (high bitrate) |
-| 80 | 1080P |
-| 64 | 720P |
-| 32 | 480P |
-| 16 | 360P |
-
-### Audio quality (id)
-| id | Bitrate | Note |
-|----|---------|------|
-| 30216 | 64 kbps | Smallest, ~50% smaller than default |
-| 30232 | 132 kbps | Medium |
-| 30280 | 192 kbps | Default, highest quality regular AAC |
-| 30250 | Dolby Atmos | Needs login + Dolby flag |
-| 30251 | Hi-Res FLAC | Needs login + `--hires` flag |
-
-### Video codec (codec id)
-| id | Codec |
-|----|-------|
-| 7 | AVC (H.264) — most compatible |
-| 12 | HEVC (H.265) — smaller, needs player support |
-| 13 | AV1 — newest, smallest, limited player support |
-
-## Common Workflows
-
-### "Download this video"
-```bash
-pilidown download <url> --quality 80 --output ./downloads
-```
-(Logged-in default requests 1080P + 192k; anonymous default requests the lowest quality + 64k. No need to call `info`/`stream` first; `download` does it internally.)
-
-### "Download highest quality" (needs 大会员 login)
-```bash
-pilidown login    # if not logged in yet
-pilidown download <url> --quality 120 --output ./downloads    # 4K
-# or --quality 116 for 1080P60
-```
-
-### "What is this video? Show me info"
-```bash
-pilidown info <url>
-```
-
-### "What qualities are available?"
-```bash
-pilidown stream <url> --json
-```
-
-### "Download entire collection"
-```bash
-pilidown download <url> --collection --output ./downloads
-```
-
-### "Get danmaku + subtitles for this video"
-```bash
-pilidown danmaku <url> --format ass
-pilidown subtitle <url> --format srt
-```
-
-### "Download with smallest file size"
-```bash
-pilidown download <url> --quality 32 --audio-quality 30216 --output ./downloads
-# 480P video + 64kbps audio — minimal size
-```
-
-## Error Handling
-
-- `-352` risk control: auto-handled (injects buvid3 cookie, retries)
-- `-101` not logged in: tell user to run `pilidown login` first
-- FFmpeg is not required; merge uses pure-JS fMP4 passthrough (video+audio → dual-track fMP4). If merge fails, the command exits 1 and the downloaded `.m4v`/`.m4a` files are retained for inspection.
-- Video not in collection: `download --collection` throws clear error
-- Page numbers are 1-based; current commands fall back to page 1 when the requested page is out of range.
-- Batch downloads continue after individual failures: exit code is 1 when anything failed, and `--json` output carries a `failures` array (page/episode + stage + error).
-
-## Notes
-
-- Video commands accept URL, BV ID, or AV ID: `pilidown info BV1D4f5BTEE8` works.
-- Commands with `--json` emit JSON Lines events, not necessarily one JSON object; `danmaku` requires `--output` for clean machine-readable stdout.
-- `stream --show-url` and bangumi/cheese `--ep` can expose short-lived signed URLs; use only when explicitly requested and do not store or share them.
-- Cookie file: `~/.pilidown/cookies.json` (persisted after login)
-- Requires Node.js 18+; FFmpeg is optional because media processing has a pure-JS fallback
+### External FFmpeg Fallback SOP
+Built-in merge uses pure-JS box surgery. If merge fails (`E_MERGE` exit code 1) or custom container conversion is required:
+1. **Verify streams**: Ensure downloaded `<name>.m4v` and `<name>.m4a` remain in the output directory (pilidown never deletes streams on merge failure).
+2. **Check environment**: Execute `ffmpeg -version`. If unavailable, notify the user to install ffmpeg or merge manually.
+3. **Lossless mux**:
+   ```bash
+   ffmpeg -i "<video.m4v>" -i "<audio.m4a>" -c copy -y "<output.mp4>"
+   ```
+4. **Cleanup & Deliver**: Remove `.m4v` and `.m4a` upon successful ffmpeg exit, then deliver the final `.mp4`.
