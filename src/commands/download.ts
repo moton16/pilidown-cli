@@ -33,6 +33,9 @@ export function registerDownloadCommand(program: Command): void {
     .option('--filename <name>', 'Override base filename (no extension)')
     .option('--threads <n>', 'Number of download threads per stream', (v: string) => parseInt(v, 10), 8)
     .option('--no-merge', 'Skip merge; keep separate .m4v + .m4a')
+    .option('--container <fmt>', 'Output container: fmp4 (default, O(1) memory) or mp4 (progressive compatibility)', 'fmp4')
+    .option('--no-resume', 'Disable resumable download and discard existing partial state')
+    .option('--max-media-mem <mb>', 'Max memory in MB for progressive MP4 conversion (default 4096)', (v: string) => parseInt(v, 10), 4096)
     .option('--audio-only', 'Download audio only (skip video stream), output .m4a')
     .option('--format <fmt>', 'Audio format: m4a only (mp3 removed — native AAC; transcode with system ffmpeg if needed)', 'm4a')
     .option('--overwrite', 'Overwrite existing files instead of skipping')
@@ -53,6 +56,9 @@ export function registerDownloadCommand(program: Command): void {
           filename?: string;
           threads: number;
           merge: boolean;
+          container: 'fmp4' | 'mp4';
+          resume: boolean;
+          maxMediaMem?: number;
           audioOnly?: boolean;
           format?: string;
           overwrite?: boolean;
@@ -64,6 +70,9 @@ export function registerDownloadCommand(program: Command): void {
           const parsed = parseEntrance(arg);
           if (parsed.type !== 'video') {
             throw new Error(`download command supports video only, got "${parsed.type}"`);
+          }
+          if (opts.container && opts.container !== 'fmp4' && opts.container !== 'mp4') {
+            throw new Error(`Invalid container "${opts.container}". Supported values: "fmp4", "mp4".`);
           }
           mkdirSync(opts.output, { recursive: true });
           const loggedIn = Boolean(loadCookies().cookies.SESSDATA);
@@ -79,6 +88,9 @@ export function registerDownloadCommand(program: Command): void {
             filename: opts.filename,
             threads: opts.threads,
             noMerge: !opts.merge,
+            container: opts.container,
+            noResume: opts.resume === false,
+            maxMediaMemMb: opts.maxMediaMem,
             audioOnly: opts.audioOnly,
             format: opts.format,
             overwrite: opts.overwrite,

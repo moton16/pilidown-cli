@@ -37,6 +37,27 @@
 
 ## 2026-09-10
 
+### 2026-09-10 · Antigravity/Gemini 3.8 Flash · feat（P1 第二批方案全面落地）
+
+- 改动文件：
+  - `src/utils/box.ts` — **新增**。提取通用的 MP4 box 解析与构造工具（`topBoxes`, `childBoxes`, `find`, `findAll`, `createBox`, 字节读写函数等）。
+  - `src/utils/mp4.ts` — **新增**。渐进式双轨 MP4 容器无损合并（移植自 `merge-mp4.mjs`，包含 trak 搬迁、trackId 重编号、`stco`/`co64` 采样偏移修正、`mvhd` 时长修正、流式分块写入与原子替换）。
+  - `src/utils/media.ts` — 新增 `mergeDashStreamsProgressive`，集成输入体积 5 倍内存预检护栏（默认 4GB，可配 `--max-media-mem`，超限明确提示出路）；`mergeDashStreams` 增加 `container` 选项调度。
+  - `src/utils/downloader.ts` — 落地字节级断点续传（偏移直写 `pwrite` + `.partstate.json` 清单，强校验 `Content-Range` 起始偏移，单分片 4 次重试退避，跨进程 `.part.lock` 保护，单一聚合器精确进度速度计算）；`mergeParts` 改造为流式异步 + 原子写。
+  - `src/services/DownloadService.ts` — `DownloadFailure` 增加 `code` 错误分类码（`E_HTTP` / `E_MERGE` / `E_EXPIRED_URL` / `E_DISK` / `E_UNSUPPORTED`）；`downloadAllPages` 与 `downloadCollection` 预分配数组保证确定性页码顺序输出；透传 `container`、`noResume`、`maxMediaMemMb` 参数。
+  - `src/commands/download.ts` — 增加 `--container <fmp4|mp4>`（默认 fmp4）、`--no-resume` 与 `--max-media-mem <mb>` 选项。
+  - `.github/workflows/ci.yml` — **新增**。跨平台 CI 矩阵（Ubuntu + Windows × Node 20 / 22），包含类型检查、全套单测、构建及双分发产物漂移拦截（`git diff --exit-code`）。
+  - `build.mjs` — 打包脚本升级为一次构建同时输出/同步 `bin/cli.cjs` 与 `skills/pilidown/bin/cli.cjs`，从构建根源消除副本漂移；目标平台调优为 node20。
+  - `package.json` — 更新 `engines.node` 为 `>=20.0.0`。
+  - `skills/pilidown/SKILL.md`、`README.md` — 更新 Node 20+ 要求与新增参数文档说明。
+  - `tests/unit/downloadService.test.ts` — **新增**。为 `DownloadService` 补齐 8 个测试用例（覆盖全成功、部分失败 code 收集、全失败、确定性结果顺序、UGC 合集映射等）。
+  - `tests/unit/mp4.test.ts` — **新增**。渐进式 MP4 解析、双轨合并及内存护栏拦截测试。
+  - `tests/unit/downloader.test.ts` — 适配异步 `mergeParts`，并补充清单断点续传、Content-Range 错位拦截、200 忽略 Range 拦截、`--no-resume` 重置等测试。
+  - `bin/cli.cjs`、`skills/pilidown/bin/cli.cjs` — 重新构建同步最新分发产物。
+- 性质：feat（含 refactor / test / docs / chore）
+- 重新构建：是（双份产物哈希一致且无漂移）
+- 备注：P1 方案 5 大模块（M1~M5）已全部落地。tsc 零错误，Jest 24 个套件 257 个单测全部通过。
+
 ### 2026-09-10 · WorkBuddy · docs（交付整理）
 
 （commit 见 `git log -1 -- docs/plans/prototypes/README.md`）

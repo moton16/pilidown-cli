@@ -40,6 +40,9 @@ export interface DownloadVideoOptions {
   overwrite?: boolean;
   audioOnly?: boolean; // only download audio, skip video stream
   format?: string; // audio format: m4a (only supported value; mp3 removed — see T2)
+  container?: 'fmp4' | 'mp4'; // default: fmp4 (progressive mp4 available via mp4)
+  noResume?: boolean;
+  maxMediaMemMb?: number;
 }
 
 export interface DownloadResult {
@@ -60,6 +63,24 @@ export interface DownloadFailure {
   part?: string;
   stage: string;
   error: string;
+  code?: 'E_HTTP' | 'E_MERGE' | 'E_EXPIRED_URL' | 'E_DISK' | 'E_UNSUPPORTED' | string;
+}
+
+export function classifyError(e: Error): 'E_HTTP' | 'E_MERGE' | 'E_EXPIRED_URL' | 'E_DISK' | 'E_UNSUPPORTED' {
+  const msg = (e.message || '').toLowerCase();
+  if (msg.includes('merge') || msg.includes('fmp4') || msg.includes('box') || msg.includes('corrupt')) {
+    return 'E_MERGE';
+  }
+  if (msg.includes('expired') || msg.includes('url expired')) {
+    return 'E_EXPIRED_URL';
+  }
+  if (msg.includes('enospc') || msg.includes('disk') || msg.includes('space') || msg.includes('eperm') || msg.includes('eacces')) {
+    return 'E_DISK';
+  }
+  if (msg.includes('unsupported') || msg.includes('not supported')) {
+    return 'E_UNSUPPORTED';
+  }
+  return 'E_HTTP';
 }
 
 function sanitizeFilename(s: string): string {
@@ -88,6 +109,7 @@ async function downloadStream(
   cookies: Record<string, string>,
   threads: number,
   qualityLabel: string,
+  extra: { resume?: boolean; key?: string } = {},
 ): Promise<{ bytes: number; durationMs: number }> {
   const start = Date.now();
   let lastErr: Error | undefined;
@@ -97,6 +119,8 @@ async function downloadStream(
         cookies,
         headers: { Referer: 'https://www.bilibili.com/' },
         threads,
+        resume: extra.resume,
+        key: extra.key,
         onProgress: (cur, total, speedBps) => {
           logProgress(cur, total, { label: qualityLabel, speedBps });
         },
@@ -163,7 +187,10 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
     } else {
       const urls = [selected.durl.url, ...(selected.durl.backup_url ?? [])];
       logInfo('downloading durl (single-file)', { url: urls[0].slice(0, 80), size: selected.durl.size, fallbacks: urls.length - 1 });
-      await downloadStream(urls, durlPath, cookies, opts.threads ?? 8, `durl qn=${selected.quality}`);
+      await downloadStream(urls, durlPath, cookies, opts.threads ?? 8, `durl qn=${selected.quality}`, {
+        resume: !opts.noResume,
+        key: `${info.bvid}-${page.cid}-durl`,
+      });
       mergedPath = durlPath;
     }
 
@@ -183,7 +210,10 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
       } else {
         const videoUrls = [selected.video.baseUrl, ...(selected.video.baseBackupUrl ?? [])];
         logInfo('downloading video', { url: videoUrls[0].slice(0, 80), quality: selected.video.id, fallbacks: videoUrls.length - 1 });
-        await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video.id}`);
+        await downloadStream(videoUrls, videoPath, cookies, opts.threads ?? 8, `video qn=${selected.video.id}`, {
+          resume: !opts.noResume,
+          key: `${info.bvid}-${page.cid}-v${selected.video.id}`,
+        });
       }
     }
 
@@ -196,7 +226,10 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
       } else {
         const audioUrls = [selected.audio.baseUrl, ...(selected.audio.baseBackupUrl ?? [])];
         logInfo('downloading audio', { url: audioUrls[0].slice(0, 80), id: selected.audio.id, fallbacks: audioUrls.length - 1 });
-        await downloadStream(audioUrls, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio.id}`);
+        await downloadStream(audioUrls, audioPath, cookies, opts.threads ?? 8, `audio id=${selected.audio.id}`, {
+          resume: !opts.noResume,
+          key: `${info.bvid}-${page.cid}-a${selected.audio.id}`,
+        });
       }
     }
 
@@ -210,10 +243,13 @@ export async function downloadVideo(opts: DownloadVideoOptions): Promise<Downloa
       mergedPath = audioOut;
     } else if (!opts.noMerge && videoPath && audioPath) {
       mergedPath = join(opts.outputDir, `${baseName}.mp4`);
-      logInfo('merging video + audio (fMP4 passthrough)', { output: mergedPath });
+      logInfo('merging video + audio', { output: mergedPath, container: opts.container ?? 'fmp4' });
       // No try/catch here: merge failure must fail the command (exit 1),
       // keeping the downloaded streams for inspection.
-      await mergeDashStreams(videoPath, audioPath, mergedPath);
+      await mergeDashStreams(videoPath, audioPath, mergedPath, {
+        container: opts.container,
+        maxMediaMemMb: opts.maxMediaMemMb,
+      });
       safeUnlink(videoPath);
       safeUnlink(audioPath);
       videoPath = undefined;
@@ -240,7 +276,7 @@ export async function downloadAllPages(
   const info = await getVideoInfo({ bvid: opts.bvid, aid: opts.aid });
   const pages = opts.pages ?? info.pages.map(p => p.page);
   const concurrency = 3;
-  const results: DownloadResult[] = [];
+  const results: (DownloadResult | undefined)[] = new Array(pages.length);
   const failures: DownloadFailure[] = [];
   let cursor = 0;
   async function worker(): Promise<void> {
@@ -249,16 +285,17 @@ export async function downloadAllPages(
       const pageNo = pages[idx];
       try {
         const r = await downloadVideo({ ...opts, page: pageNo });
-        results.push(r);
+        results[idx] = r;
       } catch (err) {
         const e = err as Error;
         logError('page download failed', { page: pageNo, error: e.message });
-        failures.push({ page: pageNo, bvid: opts.bvid, stage: 'download', error: e.message });
+        failures.push({ page: pageNo, bvid: opts.bvid, stage: 'download', error: e.message, code: classifyError(e) });
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pages.length) }, () => worker()));
-  return { results, failures };
+  failures.sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
+  return { results: results.filter((r): r is DownloadResult => r !== undefined), failures };
 }
 
 /**
@@ -280,7 +317,7 @@ export async function downloadCollection(
     }
   }
   const concurrency = 3;
-  const results: DownloadResult[] = [];
+  const results: (DownloadResult | undefined)[] = new Array(episodes.length);
   const failures: DownloadFailure[] = [];
   let cursor = 0;
   async function worker(): Promise<void> {
@@ -297,16 +334,17 @@ export async function downloadCollection(
             ? `${opts.filename}-ep${idx + 1}-${ep.title}`
             : `${info.ugc_season!.title}-ep${idx + 1}-${ep.title}`,
         });
-        results.push(r);
+        results[idx] = r;
       } catch (err) {
         const e = err as Error;
         logError('collection episode failed', { episode: idx + 1, bvid: ep.bvid, error: e.message });
-        failures.push({ episode: idx + 1, bvid: ep.bvid, part: ep.title, stage: 'download', error: e.message });
+        failures.push({ episode: idx + 1, bvid: ep.bvid, part: ep.title, stage: 'download', error: e.message, code: classifyError(e) });
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, episodes.length) }, () => worker()));
-  return { results, failures };
+  failures.sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
+  return { results: results.filter((r): r is DownloadResult => r !== undefined), failures };
 }
 
 /** Only m4a is supported (T2: mp3 removed — lossy→lossy + GPL entanglement). */

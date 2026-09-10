@@ -22,7 +22,7 @@
 
 ###1. Requirements
 
-- **Node.js 18+**
+- **Node.js 20+**
 
 ###2. Run with Bundled Wrappers (No build required)
 

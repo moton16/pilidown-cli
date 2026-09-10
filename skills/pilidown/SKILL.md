@@ -21,7 +21,7 @@ Invoke this skill when the user wants to:
 
 - `<skill_dir>` = the directory containing this SKILL.md. Locate it first (e.g. the agent's working directory or the skill install folder), then append `/bin/pilidown.cmd` (Windows) or `/bin/pilidown` (Unix).
 - In all command templates below, `pilidown` stands for that binary.
-- No `npm ci` / `npm run build` needed — the CLI is pre-built and bundled. The only system requirement is Node.js 18+.
+- No `npm ci` / `npm run build` needed — the CLI is pre-built and bundled. The only system requirement is Node.js 20+.
 
 ## Invocation Contract
 
@@ -96,6 +96,8 @@ pilidown download <url-or-bv> --quality <qn> --audio-quality <id> --output <dir>
 # Small audio: --audio-quality 30216 (64k, ~50% smaller)
 # Multi-page: --all (all pages) or --page <n>
 # Skip merge: --no-merge (DASH usually keeps .m4v + .m4a; durl may remain .mp4/.flv)
+# Container: --container mp4 for legacy player progressive MP4 (default: fmp4, O(1) memory)
+# Resuming: enabled by default with byte-level precision; use --no-resume to restart from scratch
 ```
 
 ### Download entire collection (合集)
