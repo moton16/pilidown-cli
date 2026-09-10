@@ -2,6 +2,19 @@
 
 面向首次接触本仓库的开发者。读完后应能定位任意功能所在文件、知道改哪里、知道哪些地方不能动。
 
+## 0. 接手开发读什么
+
+| 你想做什么 | 读哪个 |
+|---|---|
+| 了解项目全貌、代码在哪、哪里不能动 | 本文 |
+| 接下来要做什么、按什么顺序做 | `docs/plans/p1-batch2-plan.md`（第 8 节是落地顺序） |
+| 已经改过什么、某个功能是哪次提交做的 | `docs/changelog_developer.md` |
+| 复现方案里的实测结论 | `docs/plans/prototypes/`（可运行脚本，自带说明） |
+| 已知但尚未排期的问题 | `TODOS.md` |
+| 已完成的修复及其依据 | `docs/plans/p0-fix-plan.md` |
+
+`docs/zero-ffmpeg-research.md` 是历史文档，结论已过时，不要照它实施。
+
 ## 1. 项目定位
 
 pilidown 是一个 B 站（bilibili）下载器 CLI，TypeScript 编写，无外部二进制依赖。核心代码移植自 DownKyi（C#，<https://github.com/leiurayer/downkyi>），许可证 MIT。
@@ -20,14 +33,14 @@ pilidown 是一个 B 站（bilibili）下载器 CLI，TypeScript 编写，无外
 ```bash
 npm install          # 安装依赖
 npm run typecheck    # tsc --noEmit
-npm test             # jest，21 套件 / 233 用例
+npm test             # jest，22 套件 / 242 用例
 npm run build        # esbuild → bin/cli.cjs
 node bin/cli.cjs info BV1xx411c7mD
 ```
 
 Node 版本要求 ≥ 18（依赖原生 `fetch` 与 `Readable.fromWeb`）。
 
-`.gitignore` 第 6 行忽略了 `bin/cli.cjs`，**fresh clone 后必须先 `npm run build`**，否则 `bin/pilidown.cmd` 直接 `MODULE_NOT_FOUND`。Skill 目录下的 `skills/pilidown/bin/cli.cjs` 是提交进仓库的，不受影响。
+`bin/cli.cjs` 与 `skills/pilidown/bin/cli.cjs` 都是**提交进仓库的构建产物**，fresh clone 即可直接运行，无需先构建。但改了 `src/` 之后必须 `npm run build` 并同步两份产物（`build.mjs` 目前只写第一份，需要手工 `cp`——见 `p1-batch2-plan.md` M4，计划改为一次写两处）。构建是可复现的：重新构建的产物与仓库里的 sha256 一致。
 
 ## 3. 仓库地图
 
@@ -43,7 +56,14 @@ src/
 build.mjs               esbuild 打包脚本
 bin/                    跨平台 wrapper + 打包产物
 skills/pilidown/        Agent Skill 分发包
-docs/                   文档（本文件、zero-ffmpeg-research.md、changelog_developer.md）
+docs/                   文档
+  quick_start.md          本文件——新接手先读这个
+  changelog_developer.md  按 commit 记录每次改动
+  zero-ffmpeg-research.md 历史调研（结论已过时，仅供追溯）
+  plans/                  方案与原型
+    p0-fix-plan.md          已完成的 P0 修复（含实测数据与审查记录）
+    p1-batch2-plan.md       下一批待办（容器兼容 / 续传 / CI / 测试）
+    prototypes/             制定方案用的可运行验证脚本
 tests/unit/             jest 单测
 scripts/                playurl 诊断脚本（临时排查用，非产品代码）
 ```
@@ -59,7 +79,7 @@ scripts/                playurl 诊断脚本（临时排查用，非产品代码
 | 网络 | Node 原生 `fetch` | 不依赖 axios/undici 封装 |
 | 打包 | esbuild 0.21 | 单文件 CJS 输出，无 external |
 | 测试 | jest 29 + ts-jest | 纯单测，无 mock 服务器（用 stub 注入） |
-| 媒体处理 | `@invintusmedia/tomp4`、`@audio/decode-aac`、`@breezystack/lamejs` | 替代原 ffmpeg 路径 |
+| 媒体处理 | `@invintusmedia/tomp4` | 唯一媒体依赖。fMP4 直通合并与音频转 m4a 都走它；mp3 链路（`@audio/decode-aac` GPL-2.0 + `@breezystack/lamejs`）已移除 |
 | 其他 | qrcode、iconv-lite | 登录二维码、GBK 字幕解码 |
 
 设计取向（`ponytail` 原则）：能用标准库就不加依赖，能固定分区就不用动态调度，能 20 行写完就不上设计模式。源码中 `// ponytail:` 开头的注释标记了这类取舍与简化点，改动前先看一眼。
@@ -242,9 +262,13 @@ src/**/*.ts  ──esbuild──▶  bin/cli.cjs  ──复制──▶  skills/
 
 改 `src/core/constants.ts`，同步 `skills/pilidown/SKILL.md` 对应说明，跑 `npm run build` 后实测确认。
 
-**改媒体处理（合并/转码）**
+**改媒体处理（合并/容器转换）**
 
-先读 `docs/zero-ffmpeg-research.md`，再动 `src/utils/media.ts`。改完必须真机实测：下载一个真实视频，用 `ffprobe` 检查轨道数、时长、帧数，并用 `ffmpeg -v error -xerror -i out.mp4 -f null -` 做全解码校验。
+先读 `docs/plans/p0-fix-plan.md` 第 3 节与 `src/utils/fmp4.ts` 的文件头注释，再动代码。`docs/zero-ffmpeg-research.md` 是历史文档，结论已过时，不要照它实施。
+
+合并路径现在无 ffmpeg 依赖，但**验收仍必须用真机 ffmpeg**：下载一个真实视频，`ffprobe` 检查轨道数/时长/帧数，`ffmpeg -v error -xerror -i out.mp4 -f null -` 做全解码校验。
+
+**校验纪律**：禁止对 GB 级文件做全量解码。用 `ffprobe` 查结构 + `ffmpeg -t 20` 限时长解码 + mdat payload 字节比对。曾因对 337MB 文件做全量解码同时持有两份 337MB 比对 buffer，把 16GB 机器压到 OOM。
 
 ## 12. 编码约定
 

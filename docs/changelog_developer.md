@@ -37,6 +37,19 @@
 
 ## 2026-09-10
 
+### 2026-09-10 · WorkBuddy · docs（交付整理）
+
+（commit 见 `git log -1 -- docs/plans/prototypes/README.md`）
+
+- 改动文件：
+  - `docs/plans/prototypes/` — **新增**。把制定方案用的可运行验证脚本收进仓库：`merge-mp4.mjs`（渐进式双轨合并，M1 依据）、`resume-prototype.mjs`（偏移直写 + 清单续传，5 个用例，M2 依据）、`README.md`（各自服务哪条方案、怎么跑、已经验证了什么、Windows `EPERM` 坑）
+  - `docs/quick_start.md` — 新增第 0 节「接手开发读什么」文档路由表；修正仓库地图的 docs 树；修正过时内容（用例数 233 → 242、`.gitignore` 忽略 `bin/cli.cjs` 的说明已失效，产物已入库且可复现）；修正媒体依赖表（`@audio/decode-aac`/`@breezystack/lamejs` 已移除）；「改媒体处理」章节改为指向 fmp4.ts 与 p0-fix-plan，并补入禁止对 GB 级文件全量解码的校验纪律
+  - `docs/zero-ffmpeg-research.md` — 顶部加历史文档警示：结论已过时，照它实施正是两个 P0 的来源；「GPL 传染可接受」的前提已被推翻（最终移除 mp3 保持 MIT）
+  - `TODOS.md` — 新增「尚未纳入任何计划的遗留问题」两节：Cookie 凭据明文存储 / Windows 无权限收紧 / 非原子写，以及非 JSON 模式下进度条与日志交错
+- 性质：docs
+- 重新构建：否
+- 备注：为交付给其他开发者接手做整理。核查中发现 `docs/zero-ffmpeg-research.md` 一直没被标记为过时，而它正是引入两个 P0 的历史方案，接手者按它实施会重走弯路
+
 ### 2026-09-10 · WorkBuddy · docs（P1 第二批方案）
 
 （commit 见 `git log -1 -- docs/plans/p1-batch2-plan.md`）

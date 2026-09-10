@@ -1,5 +1,19 @@
 # 零 FFmpeg 方案调研
 
+> **⚠️ 历史文档 —— 结论已过时，不要照着实施。**
+>
+> 本文件是 2026-08 制定「去掉 ffmpeg」方案时的原始调研。按它实施的结果引入了项目两个 P0 缺陷：
+> `media.ts` 用渐进式解析器 `MP4Parser` 处理 B 站 fMP4（必然失败），以及 CJS bundle 下 `import.meta.url`
+> 为 `undefined` 导致 mp3 转码必炸。两个缺陷已于 2026-09-10 修复。
+>
+> 另外本文件第 49 / 147-149 行的前提「GPL-2.0 传染可接受、项目转 GPL」已被推翻：
+> 最终选择移除 mp3 转码链路，从而卸掉 GPL 依赖，项目保持 MIT。
+>
+> **当前有效的文档**：`docs/plans/p0-fix-plan.md`（已修复项与依据）、`docs/plans/p1-batch2-plan.md`（待办项）、
+> `docs/quick_start.md`（代码地图）。
+>
+> 保留本文件只为记录决策过程——「纯 JS 合并」这个方向本身是对的，错在选错了库内部的 API。
+
 > 目标：完全移除 pilidown 对 ffmpeg 二进制的依赖，改用纯 JS/WASM npm 包实现音视频处理。
 
 ## 一、现状分析
