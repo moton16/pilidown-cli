@@ -37,6 +37,17 @@
 
 ## 2026-09-10
 
+### 2026-09-10 · WorkBuddy · docs（P1 第二批方案）
+
+（commit 见 `git log -1 -- docs/plans/p1-batch2-plan.md`）
+
+- 改动文件：
+  - `docs/plans/p1-batch2-plan.md` — **新增**。第二批方案：`--container mp4` 渐进式兼容路径（复用 tomp4 `convertFmp4ToMp4` + box 级合并，内存 4.7x 配预检护栏；自研 O(1) 流式转换器延后）、字节级续传（**偏移直写 + `.partstate.json` 清单**替代 tempDir + 分片文件）、`mergeParts` 异步化（`pipeline` + temp/rename 原子写，并退出下载关键路径）、CI（2 OS × 2 Node + 产物漂移检查）、批处理 failures 单测。含架构图、测试图谱、失败模式登记、5 个决策点、落地顺序、验收标准
+  - `TODOS.md` — **新增**。5 条已决策延后事项，每条附触发条件
+- 性质：docs
+- 重新构建：否
+- 备注：**续传原设计草案被独立审查否决**——"按文件大小推断已完成字节数"会在「服务器返回 200 忽略 Range、且这次重写写到一半被杀」时静默产出错位数据（残留分片装的是整文件前 N 字节而非该分片第 N 字节）。改为偏移直写 + 清单，并强制校验 `Content-Range` 起始偏移。原型实测 5 个用例全过（见 `docs/plans/p1-batch2-plan.md` 第 9 节验收标准的来源）：字节 sha256 一致、断点续传后 sha 一致、Content-Range 撒谎被拒、服务器忽略 Range 被拒。**Windows 平台差异实测踩出**：`FileHandle.truncate()` 在 `'a+'` 模式返回 `EPERM`，必须用 `'r+'` 且文件需先存在。外部调研结论：`mp4box.js`（全内存、无官方 flatten）、`mp4-muxer`（已废弃、需 WebCodecs）、`mux.js`（方向相反）、`mediabunny`（可 transmux 但为新增 MPL-2.0 依赖且未对 B 站双轨验证）；业界 yutto / BBDown / lux / yt-dlp 均直接调用 ffmpeg 或 MP4Box 做容器兼容，故复用已在依赖树里的 tomp4
+
 ### 2026-09-10 · WorkBuddy · fix（P0 修复第一批）
 
 （commit 见 `git log -1 -- src/utils/fmp4.ts`）
