@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "prompt": "帮我下载这个B站视频 https://www.bilibili.com/video/BV1xx411c7mD 到当前目录的 downloads 文件夹下",
+    "expected": "正确调用 pilidown download 命令，带 --output ./downloads，使用 --json 进行结构化解析，不提前做无意义的 stream 查询"
+  },
+  {
+    "id": 2,
+    "prompt": "我想要提取这个B站视频里的音频背景音乐，只要音频存为 m4a 格式",
+    "expected": "正确调用 pilidown download 带 --audio-only，理解默认输出原生 m4a 且无转码损耗"
+  },
+  {
+    "id": 3,
+    "prompt": "下载视频合并时终端报错了，提示 E_MERGE 容器解析错误，该怎么处理？",
+    "expected": "严格按照 FFmpeg 降级 SOP 应对：先确认已下载的 .m4v 和 .m4a 仍在磁盘，再探测系统是否有 ffmpeg，使用 -c copy 极速无损合并并清理临时文件交付"
+  }
+]
